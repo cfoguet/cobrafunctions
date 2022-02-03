@@ -17,6 +17,22 @@ from cobrafunctions.qMTA import read_gene_data,remove_nearZeroVar
 
 
 """
+map_expression_to_reactions.py
+This script maps genetically imputed patient-specific expression patterns to organ-specific models using the gene reaction annotations in these models. Imputed values are expressed as Log2 fold changes relative to average gene expression in a given organ and then mapped to reactions in the organ-specific model considering the relative transcript abundance of isoenzymes and enzyme subunits (e.g. in a reaction catalysed by multiple isoenzymes genetic variation on the isoenzyme with the highest expression will have a stronger effect on putative reaction activity). The script must be run for each organ under study. 
+Usage: map_expression_to_reactions.py [INPUTS...] 
+
+INPUTS:
+-i, --imputed_transcript_abundance : Path to the CSV or XLSX file with the Organ-specific transcript abundance patterns imputed from genotype data. Genes must be in rows and individuals/samples in columns. 
+-m, --organ_specific_model : path to the organ-specific model in SBML format. Can also take the gim3e__constrained_model.sbml model as input. 
+-r, --reference_transcript_abundance :  Path to the CSV or XLSX file defining the average organ gene expression in TPM or FPKM.
+-o, --output_directory : Working and output directory. Will be created if it does not exist. 
+-s, --sample_list : Optional, list of sample/individual IDs that should be analysed. If not provided all samples will be analysed. Each row should contain a sample/individuals ID.
+-t, --organ_name :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name
+-g, --gene_id_column_name : Optional, defines the column name in imputed_transcript_abundance that defines the ENTREZ ID. If it isnot provided, it will be assumed to be the first column in the file. 
+
+OUTPUTS:
+reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
+
 """
 tissue_key_defined_flag=False
 sample_output=""

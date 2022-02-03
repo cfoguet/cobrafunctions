@@ -13,6 +13,21 @@ from cobrafunctions.write_spreadsheet import write_spreadsheet
 
 
 """
+gim3e_and_sampling.py
+Average organ transcript abundances are mapped to the organ-specific subnetworks using the gene reaction annotations in each network. More in detail, transcripts abundances of isoenzymes and enzymes subunits catalysing each reaction or transport processes are added and, subsequently, LOG2 transformed. The resulting values are used as input to apply the GIM3E algorithm. The GIM3E algorithm applies a flux minimization weighted by transcript abundance allowing to identify solutions that are both enzymatically efficient and consistent with gene expression data. Subsequently, the flux ranges within 99% of the GIM3E optimal solution are identified and the resulting solution space is sampled using the Artificially Centered hit-and-run (ACHR) algorithm. The average of these flux samples can be used as the reference or average flux map of each organ.
+
+Usage: gim3e_and_sampling.py [INPUTS...] 
+
+INPUTS:
+-m, --organ_specific_model_directory  : Directory containing organ-specific genome-scale metabolic models in SBML format. All SBML models will be analyzed in succession. 
+-r, --reference_transcript_abundance :  Path to the CSV or XLSX file defining the average organ gene expression in TPM or FPKM.
+-o, --output_directory : Output directory. Will be created if it does not exist. 
+
+OUTPUTS:
+Reference_fluxes_ORGAN_NAME.csv : A CSV file with the GIM3E optimal solution, GIM3E flux ranges and average flux distributions for all reactions in all analysed organs. 
+Reference_fluxes_ORGAN_NAME_dict.json : A json file with the average flux distributions for all reactions in all analysed organs. It is used as input for run_qMTA.py
+ORGAN_NAME_gim3e__constrained_model.sbml : Organ-specific model constrained to the Gim3e flux ranges. Used as input for run_qMTA.py. 
+
 """
 opts, args = getopt.getopt(sys.argv[1:],"r:m:o:",["reference_transcript_abundance=","organ_specific_model_directory=","output_directory="])
 for opt, arg in opts:
