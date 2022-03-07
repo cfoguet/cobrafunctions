@@ -2,7 +2,6 @@
 This is a repository of COnstraint-Based Reconstruction (COnstraint-Based Reconstruction and Analysis) scripts and functions used to build organ-specific personalized flux maps from genetically imputed transcript abundances. First, a reference flux map is computed for each organ using the GIM3E algorithm to integrate average transcript abundances and organ-specific metabolic functions into organ-specific Genome-Scale Metabolic Models (GSMMs). In parallel, transcript abundances imputed from genotype data are mapped to reactions in the metabolic network. Then, the quadratic metabolic transformation algorithm (qMTA) is used to integrate the organ-specific transcript abundances mapped to reactions and reference flux map and compute personalized organ-specific metabolic flux maps. The resulting flux maps can be used to perform fluxome-wide association analysis to complex traits or diseases. 
 
 Genetically personalized flux maps can be computed running three scripts in succession:
-
  - gim3e_and_sampling.py : Runs GIM3E  to compute an organ-specific reference flux distribution from average organ transcript abundance.
  - map_expression_to_reactions.py :  Maps individual-level gene expression data as reaction activity fold changes relative to average transcript abundance. 
  - run_qMTA.py: Runs qMTA to compute the personalized flux distributions most consistent with the reaction activity fold changes starting from the reference flux distribution 
