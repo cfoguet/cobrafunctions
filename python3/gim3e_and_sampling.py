@@ -48,7 +48,7 @@ for opt, arg in opts:
           model_dict={}
           SBML_files = [f for f in os.listdir(".") if os.path.isfile(os.path.join(".", f)) and (".sbml" in f or ".xml" in f)]
           for SBML_file in SBML_files:
-              tissue_key=os.path.basename(SBML_file).replace(".sbml","").replace(".xml","").replace(".SBML","").replace(".XML","").replace("organ_metabolic_network_","").tissue_key=SBML_file.replace(".sbml","").replace(".SBML","").replace(".XML","").replace(".xml","").replace("organ_metabolic_network_","").replace("organ_specific_metabolic_network_","")
+              tissue_key=os.path.basename(SBML_file).replace(".sbml","").replace(".xml","").replace(".SBML","").replace(".XML","").replace("organ_metabolic_network_","").replace("organ_specific_metabolic_network_","")
               model_dict[tissue_key]=cobra.io.read_sbml_model(SBML_file)         
       elif opt in ("-o", "--output_directory"):
           output_folder= arg
