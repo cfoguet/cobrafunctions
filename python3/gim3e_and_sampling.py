@@ -17,7 +17,15 @@ from cobrafunctions.cobra_functions import sampling,sampling_matrix_get_mean_sd
 from cobrafunctions.read_spreadsheets import read_spreadsheets
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 
-
+#Hot fix to prevent compatbility issues with models built in python 2
+def correct_sbml_model(file_name):
+    with open(file_name, "r") as f:
+         lines = f.readlines()
+    with open(file_name, "w") as f:
+        for line in lines:
+            if '<compartment constant="true"/>\n' not in line:
+               f.write(line)
+            else: print(line)
 
 
 """
@@ -151,6 +159,8 @@ for sample in sorted(conditions_of_interest):
     fva_dict[sample]=fva
     reaction_expression_dict_dict[sample]=reaction_expression_dict
     cobra.io.write_sbml_model(model,sample+"_gim3e__constrained_model.sbml")
+    #Hot fix to prevent compatibility issues with models from python2
+    correct_sbml_model(sample+"_gim3e__constrained_model.sbml")
     if sample in conditions_to_sample:
        aggregated_results, reaction_ids=sampling(model,n=n_samples,processes=1,objective=None,starts=1,return_matrix=True,method="achr",thinning=thinning)
        reaction_n_dict={}
