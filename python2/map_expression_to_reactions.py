@@ -1,9 +1,6 @@
-#module load cplex/12.6.3
-#source /home/cf545/cobra/bin/activate
 
 import getopt
 import sys
-#sys.path.append("/rds/user/cf545/hpc-work/tools/GSMMs/cobra_functions_tidy/") #Cobra functions directory
  
 import cobra
 import os
