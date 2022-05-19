@@ -119,7 +119,7 @@ penalty_dict_dict={}
 th_dict={}
 
 
-output_sheet=[["Reaction id","Reaction name","Optimal solution","Minimum","Maximum","Reaction expression","Sampling mean","Sampling SD"]]
+output_sheet=[["Reaction id","Reaction name","Optimal solution","Minimum","Maximum","Sampling mean","Sampling SD"]]
 
 for sample in sorted(conditions_of_interest):
     if sample in conditions_to_fva:
@@ -171,7 +171,7 @@ for sample in sorted(conditions_of_interest):
         except:
            mean=""
            std="" 
-        row=[rid,reaction.name,solution_dict.get(rid),fva_min,fva_max,reaction_expression_dict.get(reaction.id),mean,std]
+        row=[rid,reaction.name,solution_dict.get(rid),fva_min,fva_max,mean,std]
         output_sheet.append(row)
     keys=column_dict.keys()
     sample_names="__".join(keys)
