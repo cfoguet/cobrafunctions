@@ -112,8 +112,17 @@ del(gene_expression)
 for tissue_key in conditions_of_interest:
  model=model_dict[tissue_key]["model"]
  if replace_and_with_or:
-     for reaction in model.reactions:
+     """     for reaction in model.reactions:
          reaction.gene_reaction_rule=reaction.gene_reaction_rule.replace("and","or")
+     """
+     for reaction in model.reactions:
+         gene_str=""
+         for n,gene in enumerate(reaction.genes):
+             if n==0:
+                gene_str=gene.id
+             else:
+                gene_str+=" or "+gene.id  
+         reaction.gene_reaction_rule=gene_str
  n_col=column_dict[tissue_key]
  reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={})
  #2
