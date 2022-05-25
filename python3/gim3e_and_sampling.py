@@ -150,8 +150,8 @@ for sample in sorted(conditions_of_interest):
     if replace_and_with_or:
      for reaction in model.reactions:
          gene_str=""
-         for n,gene in enumerate(reaction.genes):
-             if n==0:
+         for n_reaction_gene,gene in enumerate(reaction.genes):
+             if n_reaction_gene==0:
                 gene_str=gene.id
              else:
                 gene_str+=" or "+gene.id  
