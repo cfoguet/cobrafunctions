@@ -48,7 +48,7 @@ This script maps genetically imputed patient-specific expression patterns to org
 
 *-t, --organ_name* :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name.
 
-*-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the ENTREZ ID. If it isnot provided, it will be assumed to be the first column in the file. 
+*-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "NCBI.gene..formerly.Entrezgene..ID". If it is not present it will be assumed to be the first column in the file. 
 
 
 **OUTPUTS:**

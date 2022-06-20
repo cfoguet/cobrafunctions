@@ -24,7 +24,7 @@ INPUTS:
 -o, --output_directory : Working and output directory. Will be created if it does not exist. 
 -s, --sample_list : Optional, list of sample/individual IDs that should be analysed. If not provided all samples will be analysed. Each row should contain a sample/individuals ID.
 -t, --organ_name :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name
--g, --gene_id_column_name : Optional, defines the column name in imputed_transcript_abundance that defines the ENTREZ ID. If it isnot provided, it will be assumed to be the first column in the file. 
+-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "NCBI.gene..formerly.Entrezgene..ID". If it is not present it will be assumed to be the first column in the file. 
 
 OUTPUTS:
 reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
@@ -33,7 +33,7 @@ reaction_expression: CSV file containing putative reaction activity fold changes
 tissue_key_defined_flag=False
 sample_output=""
 sample_list_file=None
-gene_str="NCBI.gene..formerly.Entrezgene..ID"
+gene_id_str="NCBI.gene..formerly.Entrezgene..ID"
 
 opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name="])
 for opt, arg in opts:
@@ -58,7 +58,7 @@ for opt, arg in opts:
           tissue_key= arg
           tissue_key_defined_flag=True 
       elif opt in ("-g", "--gene_id_column_name"):
-         gene_str = str(arg)
+         gene_id_str = str(arg)
 
 
 #Build dict with all data
@@ -116,8 +116,8 @@ for tissue_key in conditions_of_interest:
      """
      for reaction in model.reactions:
          gene_str=""
-         for n,gene in enumerate(reaction.genes):
-             if n==0:
+         for n_reaction_gene,gene in enumerate(reaction.genes):
+             if n_reaction_gene==0:
                 gene_str=gene.id
              else:
                 gene_str+=" or "+gene.id  
@@ -137,7 +137,7 @@ for tissue_key in conditions_of_interest:
     names_to_omit=["dummy","",None,"V1","Row.names","Gene.stable.ID","NCBI.gene..formerly.Entrezgene..ID","Gene.type","Gene.name","Gene.description","pathway","metabolic","dummy","tissue"]
     samples=[x for x in dif_header[1:] if x not in names_to_omit]  
  #Select only the samples that we want to analyze
- column_n=[n for n,x in enumerate(differential_gene_sheet[list(differential_gene_sheet.keys())[0]][0]) if (x in samples or x in gene_str)]  
+ column_n=[n for n,x in enumerate(differential_gene_sheet[list(differential_gene_sheet.keys())[0]][0]) if (x in samples or x in gene_id_str)]  
  for n_row,row in enumerate(differential_gene_sheet[list(differential_gene_sheet.keys())[0]]):
      new_row=[row[x] for x in column_n]
      differential_gene_sheet[list(differential_gene_sheet.keys())[0]][n_row]=new_row
@@ -148,7 +148,7 @@ for tissue_key in conditions_of_interest:
     print(n,key)
     reference_model=model
     log2_str=key
-    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=None,model=reference_model,log2_str=log2_str,log2_factor=1,padj_str="ignored",p_th=1,log2fc_th=0,gene_str=gene_str,p_weight_formula="1",sheet_dict=differential_gene_sheet,ignore_p_value=True)
+    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=None,model=reference_model,log2_str=log2_str,log2_factor=1,padj_str="ignored",p_th=1,log2fc_th=0,gene_str=gene_id_str,p_weight_formula="1",sheet_dict=differential_gene_sheet,ignore_p_value=True)
     #Modify genes according to the fold change
     expression_dict_sample=copy.deepcopy(expression_dict_base)
     #print log2fold_change_dict
