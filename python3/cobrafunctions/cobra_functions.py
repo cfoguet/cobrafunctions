@@ -237,3 +237,24 @@ def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   return original_fva, [x.id for x in reaction_to_remove]
 
 
+def get_equation(model,reaction_id,include_compartment=False,get_compartment_from_met_id=True):
+    reaction=model.reactions.get_by_id(reaction_id)
+    reaction_str=" "+reaction.reaction+" "
+    #print reaction_str
+    for x in reaction.metabolites:
+            met_name=x.name
+            if get_compartment_from_met_id:
+               compartment=re.search(".+\[(.+)\]$",x.id).group(1)
+               met_name=re.sub(" \[.+\]$","",met_name).rstrip()
+            else:    
+               compartment=x.compartment
+            if compartment!=None and include_compartment:
+              compartment_str="["+compartment+"]"
+              #print x.id, compartment_str
+            else:
+              compartment_str=""
+            if x.name==None:
+               x.name=x.id
+            #print x.id, x.name      
+            reaction_str=reaction_str.replace(" "+x.id+" "," "+met_name+compartment_str+" ")
+    return reaction_str.strip()

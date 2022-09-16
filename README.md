@@ -8,7 +8,7 @@ Genetically personalized flux maps can be computed running three scripts in succ
 ## Installation
 The python scripts and underlying functions can be run in either python 2 or python 3. Source code is provided for either distribution in the directories python2 and  python3. Running “python setup.py install” will install the scripts and all their open source dependencies. Additionally, run_qMTA.py also requires the solver  CPLEX and its associated python package which must be installed separately. Cplex is freely available for academic use as part of the [IBM academic initiative](https://www.ibm.com/support/pages/ibm-ilog-optimization-academic-initiative) . Creating a virtualenv is advised to prevent compatibility issues with existing python installations.  
 ## Required inputs
- - Average organ gene expression: A CSV or XLSX file defining the average gene expression (in TPM, FPKM or equivalent units) in a given organ or tissue. Such data can be obtained from the GTEx database. The first column must define entrez ID, and subsequent columns should contain the average gene expression in each organ. 
+ - Average organ gene expression: A CSV or XLSX file defining the average gene expression (in TPM, FPKM or equivalent units) in a given organ or tissue. Such data can be obtained from the GTEx database. The first column must define gene ID, and subsequent columns should contain the average gene expression in each organ. 
  - Organ specific genome-scale metabolic models: Systems Biology Markup Language (SBML) models defining a metabolic network representing the metabolic potential of each organ of interest. Each model must be constrained to fulfil at least some of the metabolic function of the organ (e.g. ATP production and synthesis of neurotransmitter for Brain tissue) or else GIM3E will not generate meaningful results. The model should have a “.SBML” or “.XML” extension and be named either “organ_specific_metabolic_network_ORGAN_NAME” or “ORGAN_NAME” where ORGAN_NAME must match a column name in the average organ gene expression file. 
  - Organ-specific transcript abundance patterns imputed from genotype data. Such data can be derived by applying PredictDB or equivalent models on genotype data with appropriate tools (e.g. PLINK2 or Predict.py). Genes must be in rows and individuals in columns. The first column should be the Entrez ID.
 
@@ -48,7 +48,7 @@ This script maps genetically imputed patient-specific expression patterns to org
 
 *-t, --organ_name* :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name.
 
-*-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the ENTREZ ID. If it isnot provided, it will be assumed to be the first column in the file. 
+*-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "gene_ID". If it is not present it will be assumed to be the first column in the file. 
 
 
 **OUTPUTS:**

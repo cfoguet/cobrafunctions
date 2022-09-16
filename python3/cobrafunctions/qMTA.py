@@ -122,7 +122,8 @@ def remove_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0,rows_to_omit=["dummy
         out_str=str(row_name)+" "+str(unique_values_percentatge),str(freq_first_to_second)
         #print  out_str
         if unique_values_percentatge<uniqueCut and freq_first_to_second>freqCut:
-           print(out_str)
+           pass
+           #print(out_str)
         else:
            row_lite.insert(0,row_name) #Add corrected rowname
            out_rows.append(row)
@@ -482,6 +483,7 @@ def process_mta_results(analyzed_model,vref_dict={},vres_dict={},gene_target_dic
     for reaction in analyzed_model.reactions:
           ###For display purposes if it is the reverse variation (which is usually the variation we are after) flip upregulated/downeragulated
           #break
+          omited_flag=False
           reaction_id=reaction.id
           reaction_gene_dict[reaction_id]={"genes_up":[],"genes_down":[]}
           reaction_genes_up=[]#[str(x.id)+"("+gene_target_dict[x.id][reaction.id]+"/"+str(round(p_value_dict[x.id],3))+")" for x in reaction.genes if x.id in up_genes]
