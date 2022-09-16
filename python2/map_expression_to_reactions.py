@@ -34,7 +34,7 @@ reaction_expression: CSV file containing putative reaction activity fold changes
 tissue_key_defined_flag=False
 sample_output=""
 sample_list_file=None
-gene_id_str="NCBI.gene..formerly.Entrezgene..ID"
+gene_id_str="gene_id"
 
 opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name="])
 for opt, arg in opts:
@@ -125,6 +125,16 @@ for tissue_key in conditions_of_interest:
          reaction.gene_reaction_rule=gene_str
  n_col=column_dict[tissue_key]
  reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={})
+ reaction_list=sorted(reaction_expression_dict_base)
+ if replace_and_with_or:
+        reaction_expression_dict_base={}
+        for reaction_id in reaction_list:
+            reaction_expression_value=0
+            gene_reaction_object=model.reactions.get_by_id(reaction_id)
+            for gene in gene_reaction_object.genes:
+                if gene.id in expression_dict_base:
+                   reaction_expression_value+=expression_dict_base[gene.id]
+            reaction_expression_dict_base[reaction_id]=reaction_expression_value
  #2
  differential_gene_sheet=read_spreadsheets(model_dict[tissue_key]["imputed_file"])
  if sample_list_file!=None:
@@ -142,7 +152,6 @@ for tissue_key in conditions_of_interest:
  for n_row,row in enumerate(differential_gene_sheet[differential_gene_sheet.keys()[0]]):
      new_row=[row[x] for x in column_n]
      differential_gene_sheet[differential_gene_sheet.keys()[0]][n_row]=new_row
- reaction_list=sorted(reaction_expression_dict_base)
  rows=[["id"]+[x.replace("feeding_","").replace("fasting_","") for x in reaction_list]]
  for n,key in enumerate(samples):
   try:
@@ -155,7 +164,16 @@ for tissue_key in conditions_of_interest:
     #print log2fold_change_dict
     for gene_id in log2fold_change_dict:
         expression_dict_sample[gene_id]=expression_dict_base[gene_id]*math.pow(2,log2fold_change_dict[gene_id])
-    reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample)
+    reaction_expression_dict={}
+    if replace_and_with_or:
+        for reaction_id in reaction_list:
+            reaction_expression_value=0
+            gene_reaction_object=model.reactions.get_by_id(reaction_id)
+            for gene in gene_reaction_object.genes:
+                if gene.id in expression_dict_sample:
+                   reaction_expression_value+=expression_dict_sample[gene.id]
+            reaction_expression_dict[reaction_id]=reaction_expression_value
+    else: reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample)
     #Get fold change to reation expression
     log2fold_change_dict_reactions={}
     row=[key]

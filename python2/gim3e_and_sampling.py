@@ -7,7 +7,7 @@ import cobra
 import os
 import json
 from cobrafunctions.gim3e import integrate_omics_gim3e_and_remove
-from cobrafunctions.cobra_functions import sampling,sampling_matrix_get_mean_sd
+from cobrafunctions.cobra_functions import sampling,sampling_matrix_get_mean_sd,get_equation
 from cobrafunctions.read_spreadsheets import read_spreadsheets
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 
@@ -119,7 +119,7 @@ penalty_dict_dict={}
 th_dict={}
 
 
-output_sheet=[["Reaction id","Reaction name","Optimal solution","Minimum","Maximum","Reaction expression","Sampling mean","Sampling SD"]]
+output_sheet=[["Reaction id","Reaction name","Reaction","Reaction","Optimal solution","Minimum","Maximum","Reaction expression","Sampling mean","Sampling SD"]]
 
 for sample in sorted(conditions_of_interest):
     if sample in conditions_to_fva:
@@ -176,8 +176,12 @@ for sample in sorted(conditions_of_interest):
            std=stat_dict[reaction.id]["std"]
         except:
            mean=""
-           std="" 
-        row=[rid,reaction.name,solution_dict.get(rid),fva_min,fva_max,reaction_expression_dict.get(reaction.id),mean,std]
+           std=""
+        try:
+           equation=get_equation(model,rid,include_compartment=True)
+        except:
+           equation=""
+        row=[rid,reaction.name,reaction.reaction,equation,solution_dict.get(rid),fva_min,fva_max,reaction_expression_dict.get(reaction.id),mean,std] 
         output_sheet.append(row)
     keys=column_dict.keys()
     sample_names="__".join(keys)
