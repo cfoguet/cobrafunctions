@@ -33,7 +33,87 @@ from .cobra_functions import *
 from . import cobra_functions
 
 
-from cobra.core.solution import LegacySolution
+#from cobra.core.solution import LegacySolution
+
+
+class LegacySolution(object):
+    """
+    Legacy support for an interface to a `cobra.Model` optimization solution.
+
+    Attributes
+    ----------
+    f : float
+        The objective value
+    solver : str
+        A string indicating which solver package was used.
+    x : iterable
+        List or Array of the fluxes (primal values).
+    x_dict : dict
+        A dictionary of reaction IDs that maps to the respective primal values.
+    y : iterable
+        List or Array of the dual values.
+    y_dict : dict
+        A dictionary of reaction IDs that maps to the respective dual values.
+
+    Warning
+    -------
+    The LegacySolution class and its interface is deprecated.
+    """
+
+    def __init__(self, f, x=None, x_dict=None, y=None, y_dict=None,
+                 solver=None, the_time=0, status='NA', **kwargs):
+        """
+        Initialize a `LegacySolution` from an objective value.
+
+        Parameters
+        ----------
+        f : float
+            Objective value.
+        solver : str, optional
+            A string indicating which solver package was used.
+        x : iterable, optional
+            List or Array of the fluxes (primal values).
+        x_dict : dict, optional
+            A dictionary of reaction IDs that maps to the respective primal
+            values.
+        y : iterable, optional
+            List or Array of the dual values.
+        y_dict : dict, optional
+            A dictionary of reaction IDs that maps to the respective dual
+            values.
+        the_time : int, optional
+        status : str, optional
+
+        .. warning :: deprecated
+        """
+        super(LegacySolution, self).__init__(**kwargs)
+        self.solver = solver
+        self.f = f
+        self.x = x
+        self.x_dict = x_dict
+        self.status = status
+        self.y = y
+        self.y_dict = y_dict
+
+    def __repr__(self):
+        """String representation of the solution instance."""
+        if self.status != "optimal":
+            return "<LegacySolution {0:s} at 0x{1:x}>".format(
+                self.status, id(self))
+        return "<LegacySolution {0:.3f} at 0x{1:x}>".format(
+            self.f, id(self))
+
+    def __getitem__(self, reaction_id):
+        """
+        Return the flux of a reaction.
+
+        Parameters
+        ----------
+        reaction_id : str
+            A reaction ID.
+        """
+        return self.x_dict[reaction_id]
+
 
 # solver specific parameters for Cplex
 parameter_defaults = {'objective_sense': 'maximize',
