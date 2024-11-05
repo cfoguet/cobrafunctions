@@ -169,14 +169,14 @@ def sampling_matrix_get_mean_sd(aggregated_results,reaction_ids,include_absolute
         std=np.std(row)
         percentile_dict={}
         for percentile in percentiles:
-            percentile_dict[str(percentile)]=np.percentile(row,percentile)
+            percentile_dict[str(percentile)]=np.percentile(row,percentile,axis=1)
             
         stat_dict[reaction_ids[n]]={"mean":mean,"std":std,"max":np.max(row),"min":np.min(row),"percentile":percentile_dict}
         if include_absolute_val_stats:
            percentile_dict_abs={}
            abs_row=np.abs(row)
            for percentile in percentiles:
-            percentile_dict_abs[str(percentile)]=np.percentile(abs_row,percentile)
+            percentile_dict_abs[str(percentile)]=np.percentile(abs_row,percentile,axis=1)
            mean=np.mean(abs_row)
            std=np.std(abs_row) 
            stat_dict[reaction_ids[n]]["abs_percentile"]=percentile_dict_abs
