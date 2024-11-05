@@ -428,7 +428,7 @@ def create_gim3e_model(cobra_model,file_name="gene_expression_data.xlsx",metabol
     objective_reaction = Reaction('gim3e_objective')
     gim3e_indicator = Metabolite('gim3e_indicator',formula='',name='',compartment='')
     objective_reaction.add_metabolites({gim3e_indicator:-1})
-    cobra_model.add_reaction(objective_reaction)
+    cobra_model.add_reactions([objective_reaction])
     objective_reaction.objective_coefficient=-1
     total_bound=0         
     for reaction_id in penalty_dict:
