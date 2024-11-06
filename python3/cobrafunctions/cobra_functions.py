@@ -165,20 +165,20 @@ def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False
 def sampling_matrix_get_mean_sd(aggregated_results,reaction_ids,include_absolute_val_stats=False,percentiles=[25,50,75]):
     stat_dict={}
     for n,row in enumerate(aggregated_results): 
-        mean=np.mean(row)
-        std=np.std(row)
+        mean=np.mean(row).item()
+        std=np.std(row).item()
         percentile_dict={}
         for percentile in percentiles:
-            percentile_dict[str(percentile)]=np.percentile(row,percentile,axis=1)
+            percentile_dict[str(percentile)]=np.percentile(row,percentile,axis=1).item()
             
         stat_dict[reaction_ids[n]]={"mean":mean,"std":std,"max":np.max(row),"min":np.min(row),"percentile":percentile_dict}
         if include_absolute_val_stats:
            percentile_dict_abs={}
            abs_row=np.abs(row)
            for percentile in percentiles:
-            percentile_dict_abs[str(percentile)]=np.percentile(abs_row,percentile,axis=1)
-           mean=np.mean(abs_row)
-           std=np.std(abs_row) 
+            percentile_dict_abs[str(percentile)]=np.percentile(abs_row,percentile,axis=1).item()
+           mean=np.mean(abs_row).item()
+           std=np.std(abs_row).item() 
            stat_dict[reaction_ids[n]]["abs_percentile"]=percentile_dict_abs
            stat_dict[reaction_ids[n]]["abs_mean"]=mean
            stat_dict[reaction_ids[n]]["abs_std"]=std

@@ -659,7 +659,7 @@ def get_average_gene_expression(model,file_name,gene_method="average",gene_prefi
 
 
 
-def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=True,or_mode="max",expression_dict={},reactions_to_analyze=None):
+def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=True,or_mode="max",expression_dict={},reactions_to_analyze=None,round_reaction_expression=4):
     """
     Assigns each reaction a expression value based on the gene_expression file and the GPR rules
     """
@@ -700,7 +700,9 @@ def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene
                the_gene_re = re.compile('(^|(?<=( |\()))%s(?=( |\)|$))'%re.escape(the_gene.id))
                the_gene_reaction_relation = the_gene_re.sub(str(expression_dict[the_gene.id]), the_gene_reaction_relation) 
            #print the_gene_reaction_relation
-           expression_value=round(evaluate_gene_expression_string( the_gene_reaction_relation,or_mode=or_mode),4)
+           expression_value=evaluate_gene_expression_string( the_gene_reaction_relation,or_mode=or_mode)
+           if(not round_reaction_expression is None): 
+                  expression_value=round(expression_value,round_reaction_expression)
            reaction_expression_dict[the_reaction.id]=expression_value
            #f.write(the_reaction.id+" "+str(expression_value)+"\n")
            #print(the_reaction.id+" "+str(expression_value))    

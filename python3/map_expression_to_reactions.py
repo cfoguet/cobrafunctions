@@ -64,7 +64,7 @@ for opt, arg in opts:
 #Build dict with all data
 model_dict={tissue_key:{"model":cobra.io.read_sbml_model(sbml_file), "imputed_file":imputed_file}}
 conditions_of_interest=list(model_dict.keys())#["Adipose_Subcutaneous"] #Conditions that will be analyzed with GIMME
-conditions_to_sample=conditions_to_fva=list(model_dict.keys()) # #Conditions where with FVA and sampling will be performed
+
 
 ###########Gene expression inpputs
 
@@ -123,8 +123,9 @@ for tissue_key in conditions_of_interest:
                 gene_str+=" or "+gene.id  
          reaction.gene_reaction_rule=gene_str
  n_col=column_dict[tissue_key]
- reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={})
+ reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={},round_reaction_expression=None)
  reaction_list=sorted(reaction_expression_dict_base)
+ ##In reactions with 2 or more absent genes, there might be discrepancies between get_gene_exp and the method below. The method below should be more accccurate
  if replace_and_with_or:
         reaction_expression_dict_base={}
         for reaction_id in reaction_list:
@@ -172,7 +173,7 @@ for tissue_key in conditions_of_interest:
                 if gene.id in expression_dict_sample:
                    reaction_expression_value+=expression_dict_sample[gene.id]
             reaction_expression_dict[reaction_id]=reaction_expression_value
-    else: reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample)
+    else: reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample,round_reaction_expression=None)
     #Get fold change to reation expression
     log2fold_change_dict_reactions={}
     row=[key]
