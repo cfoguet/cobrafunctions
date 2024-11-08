@@ -173,7 +173,7 @@ def relax_constraints(model,factor,max_flux):
         if reaction.upper_bound>0:
            reaction.upper_bound=max(reaction.upper_bound,1e-5*factor) 
 
-
+"""
 def remove_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0,rows_to_omit=["dummy"]):
     #Adapted from the nearZeroVar from the R caret package
     #freqCut	the cutoff for the ratio of the most common value to the second most common value
@@ -208,7 +208,31 @@ def remove_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0,rows_to_omit=["dummy
            row_lite.insert(0,row_name) #Add corrected rowname
            out_rows.append(row)
     return out_rows
-
+"""
+def find_nearZeroVar(df,uniqueCut=10 ,freqCut=95.0/10.0):
+    #Adapted from the nearZeroVar from the R caret package
+    #freqCut	the cutoff for the ratio of the most common value to the second most common value
+    #uniqueCut the cutoff for the percentage of distinct values out of the number of total samples
+    rowlen=len(df.columns)
+    rows_to_keep=[]
+    rows_to_drop=[]
+    mask_to_keep=[]
+    for index, row in df.iterrows():
+        row_counts=row.value_counts(sort=True)
+        unique_values_percentatge=float(len(row_counts))/float(rowlen)*100
+        if len(row_counts)>1:
+           freq_first_to_second=float(row_counts.iloc[0])/float(row_counts.iloc[1])
+        else:
+           freq_first_to_second= float('inf') 
+        if unique_values_percentatge<uniqueCut and freq_first_to_second>freqCut:
+           rows_to_drop.append(index)
+           mask_to_keep.append(False)
+           out_str=index+" "+str(unique_values_percentatge)+" " +str(freq_first_to_second)
+           print(out_str)
+        else:
+           rows_to_keep.append(index)
+           mask_to_keep.append(True)
+    return rows_to_drop, rows_to_keep,mask_to_keep
 
 
 def get_status(lp):
