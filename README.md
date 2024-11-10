@@ -4,9 +4,9 @@ This is a repository of COnstraint-Based Reconstruction (COnstraint-Based Recons
 Genetically personalized flux maps can be computed running three scripts in succession:
  - gim3e_and_sampling.py : Runs GIM3E  to compute an organ-specific reference flux distribution from average organ transcript abundance.
  - map_expression_to_reactions.py :  Maps individual-level gene expression data as reaction activity fold changes relative to average transcript abundance. 
- - run_qMTA.py: Runs qMTA to compute the personalized flux distributions most consistent with the reaction activity fold changes starting from the reference flux distribution 
+ - run_qMTA_individual_samples.py: Runs qMTA to compute the personalized flux distributions most consistent with the reaction activity fold changes starting from the reference flux distribution 
 ## Installation
-The python scripts and underlying functions can be run in either python 2 or python 3. Source code is provided for either distribution in the directories python2 and  python3. Running “python setup.py install” will install the scripts and all their open source dependencies. Additionally, run_qMTA.py also requires the solver  CPLEX and its associated python package which must be installed separately. Cplex is freely available for academic use as part of the [IBM academic initiative](https://www.ibm.com/support/pages/ibm-ilog-optimization-academic-initiative) . Creating a virtualenv is advised to prevent compatibility issues with existing python installations.  
+The python scripts and underlying functions can be run in either python 2 or python 3. Source code is provided for either distribution in the directories python2 and  python3. Running “python setup.py install” will install the scripts and all their open source dependencies. Additionally, run_qMTA_individual_samples.py also requires the solver  CPLEX and its associated python package which must be installed separately. Cplex is freely available for academic use as part of the [IBM academic initiative](https://www.ibm.com/support/pages/ibm-ilog-optimization-academic-initiative) . Creating a virtualenv is advised to prevent compatibility issues with existing python installations.  
 ## Required inputs
  - Average organ gene expression: A CSV or XLSX file defining the average gene expression (in TPM, FPKM or equivalent units) in a given organ or tissue. Such data can be obtained from the GTEx database. The first column must define gene ID, and subsequent columns should contain the average gene expression in each organ. 
  - Organ specific genome-scale metabolic models: Systems Biology Markup Language (SBML) models defining a metabolic network representing the metabolic potential of each organ of interest. Each model must be constrained to fulfil at least some of the metabolic function of the organ (e.g. ATP production and synthesis of neurotransmitter for Brain tissue) or else GIM3E will not generate meaningful results. The model should have a “.SBML” or “.XML” extension and be named either “organ_specific_metabolic_network_ORGAN_NAME” or “ORGAN_NAME” where ORGAN_NAME must match a column name in the average organ gene expression file. 
@@ -29,8 +29,8 @@ Average organ transcript abundances are mapped to the organ-specific subnetworks
 **OUTPUTS:**
  
  - Reference_fluxes_ORGAN_NAME.csv : A CSV file with the GIM3E optimal solution, GIM3E flux ranges and average flux distributions for all reactions in all analysed organs. 
- - Reference_fluxes_ORGAN_NAME_dict.json : A json file with the average flux distributions for all reactions in all analysed organs. It is used as input for run_qMTA.py
- - ORGAN_NAME_gim3e__constrained_model.sbml : Organ-specific model constrained to the Gim3e flux ranges. Used as input for run_qMTA.py. 
+ - Reference_fluxes_ORGAN_NAME_dict.json : A json file with the average flux distributions for all reactions in all analysed organs. It is used as input for run_qMTA_individual_samples.py
+ - ORGAN_NAME_gim3e__constrained_model.sbml : Organ-specific model constrained to the Gim3e flux ranges. Used as input for run_qMTA_individual_samples.py. 
 ## map_expression_to_reactions.py
 This script maps genetically imputed patient-specific expression patterns to organ-specific models using the gene reaction annotations in these models. Imputed values are expressed as Log2 fold changes relative to average gene expression in a given organ and then mapped to reactions in the organ-specific model considering the relative transcript abundance of isoenzymes and enzyme subunits (e.g. in a reaction catalysed by multiple isoenzymes genetic variation on the isoenzyme with the highest expression will have a stronger effect on putative reaction activity). The script must be run for each organ under study. 
 ### Usage: map_expression_to_reactions.py [INPUTS...] 
@@ -53,10 +53,11 @@ This script maps genetically imputed patient-specific expression patterns to org
 
 **OUTPUTS:**
 
-- reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
+- reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA_individual_samples.py.
 ## run_qMTA_individual_samples.py
 This script runs the quadratic metabolic transformation algorithm (qMTA). qMTA seeks to minimize the difference between the simulated flux distribution and the product of the putative fold changes by the reference flux distribution (target flux) while also minimizing the flux variation from the reference flux distribution in reactions without gene expression fold change. Additionally, both terms are scaled by the difference between the reference flux distribution and the target flux and the reference flux distribution, respectively, to prevent biases towards reactions with high reference flux values. Thus, qMTA can identify the flux map most consistent with gene expression fold changes starting from a reference flux distribution and compute personalized flux maps.
-Usage .py [INPUTS...] 
+
+### **Usage: 	run_qMTA_individual_samples.py [INPUTS...]** 
 
 **INPUTS:**
 
