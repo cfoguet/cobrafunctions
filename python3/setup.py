@@ -14,7 +14,7 @@ setup(name='cobrafunctions',
       author_email='',
       url='',
       install_requires=["openpyxl==3.0.9","cobra==0.29.1","scipy==1.14.1","cobrafunctions"],
-      scripts=["gim3e_and_sampling.py","run_qMTA.py","map_expression_to_reactions.py"],
+      scripts=["gim3e_and_sampling.py","run_qMTA_individual_samples.py","map_expression_to_reactions.py"],
       packages=find_packages(),
       package_dir = {'cobrafunctions': 'cobrafunctions'},
      )

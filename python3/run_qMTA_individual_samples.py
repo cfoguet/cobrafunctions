@@ -9,7 +9,7 @@ import json
 import cobra
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 from cobrafunctions.read_spreadsheets import read_spreadsheets
-from cobrafunctions.qMTA import  relax_constraints, run_qMTA
+from cobrafunctions.qMTA import  relax_constraints, run_qMTA_gene_expression
 
 
 individual_output=False #Check if xlsx or Json will be saved
@@ -185,7 +185,7 @@ for n,key in enumerate(sorted(data_dict)):
     gene_file=differential_gene_file
     target_condition=data_dict[key]["target_condition"]
     try:
-      output_sheet_1, vres_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict=run_qMTA(target_model,target_model,gene_fname=gene_file,vref_dict=vref_dict,gene_parameters=gene_parameters,gene_weight=1,unchanged_reaction_weight=reaction_weight,reaction_pathway_dict=reaction_pathway_dict,key=key,output_omit_reactions_with_more_than_max_genes=False,normalize_by_scale_genes=True,min_flux4weight=min_flux_weight,coef_precision=18,normalize_by_scale_unchanged_reactions=True,differential_expression_sheet_dict=gene_data,min_flux_fold_change=min_flux_fold_change,qpmethod=0,n_threads=n_threads,sample_name=key,debug_prefix=aggregated_file_prefix,detailed_output=individual_output)
+      output_sheet_1, vres_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict=run_qMTA_gene_expression(target_model,target_model,gene_fname=gene_file,vref_dict=vref_dict,gene_parameters=gene_parameters,gene_weight=1,unchanged_reaction_weight=reaction_weight,reaction_pathway_dict=reaction_pathway_dict,key=key,output_omit_reactions_with_more_than_max_genes=False,normalize_by_scale_genes=True,min_flux4weight=min_flux_weight,coef_precision=18,normalize_by_scale_unchanged_reactions=True,differential_expression_sheet_dict=gene_data,min_flux_fold_change=min_flux_fold_change,qpmethod=0,n_threads=n_threads,sample_name=key,debug_prefix=aggregated_file_prefix,detailed_output=individual_output)
       value_list=[vres_dict[x.id] for x in target_model.reactions ]
       if individual_output:
         with open("json/"+key+"_qMTA.json","w") as f:

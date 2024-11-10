@@ -54,9 +54,9 @@ This script maps genetically imputed patient-specific expression patterns to org
 **OUTPUTS:**
 
 - reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
-## run_qMTA.py
+## run_qMTA_individual_samples.py
 This script runs the quadratic metabolic transformation algorithm (qMTA). qMTA seeks to minimize the difference between the simulated flux distribution and the product of the putative fold changes by the reference flux distribution (target flux) while also minimizing the flux variation from the reference flux distribution in reactions without gene expression fold change. Additionally, both terms are scaled by the difference between the reference flux distribution and the target flux and the reference flux distribution, respectively, to prevent biases towards reactions with high reference flux values. Thus, qMTA can identify the flux map most consistent with gene expression fold changes starting from a reference flux distribution and compute personalized flux maps.
-Usage run_qMTA.py [INPUTS...] 
+Usage .py [INPUTS...] 
 
 **INPUTS:**
 
