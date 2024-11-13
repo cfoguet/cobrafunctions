@@ -584,11 +584,15 @@ def get_expression(model,file_name="gene_expression_data.xlsx",gene_method="aver
     #ws=wb.active
     value_list=[]
     for sheet in spreadsheet_dict:
-      for row in spreadsheet_dict[sheet]:
+      for n_row,row in enumerate(spreadsheet_dict[sheet]):
        try:   
         #geneid=str(row[0])
         if str(row[0])==None or str(row[0])=="":
              continue
+        if(n_row==0):
+           if(isinstance(row[gene_value_col], str)):
+             print(row[gene_value_col])
+             continue    
         #print row
         gene_expression_value=float(row[gene_value_col])
         if gene_expression_value==None:

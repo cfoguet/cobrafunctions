@@ -152,9 +152,8 @@ for tissue_key in conditions_of_interest:
  else:
     #sheet_name=list(differential_gene_sheet.keys())[0]
     differential_gene_data=pandas.read_csv(model_dict[tissue_key]["imputed_file"])
-    dif_header=differential_gene_data.columns
-    names_to_omit=["dummy","",None,"V1","Row.names","Gene.stable.ID","NCBI.gene..formerly.Entrezgene..ID","Gene.type","Gene.name","Gene.description","pathway","metabolic","dummy","tissue"]
-    samples=[x for x in dif_header[1:] if x not in names_to_omit]  
+    names_to_omit=[gene_id_str,"dummy","",None,"V1","Row.names","Gene.stable.ID","NCBI.gene..formerly.Entrezgene..ID","Gene.type","Gene.name","Gene.description","pathway","metabolic","dummy","tissue"]
+    samples=[x for x in differential_gene_data.columns if x not in names_to_omit]  
  rows=[]#[["id"]+[x.replace("feeding_","").replace("fasting_","") for x in reaction_list]]
  differential_gene_data.set_index(gene_id_str,inplace=True)
  for n,key in enumerate(samples):

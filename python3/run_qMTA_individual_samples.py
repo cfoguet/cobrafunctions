@@ -10,7 +10,7 @@ import cobra
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 from cobrafunctions.read_spreadsheets import read_spreadsheets
 from cobrafunctions.qMTA import  relax_constraints, run_qMTA_gene_expression
-
+import pandas
 
 individual_output=False #Check if xlsx or Json will be saved
 
@@ -52,7 +52,10 @@ Personalized fluxes file: CSV with the organ-specific personalized flux values c
 
 sample_list_file=None
 tissue_prefix_defined_flag=False
-opts, args = getopt.getopt(sys.argv[1:],"s:m:o:w:r:f:i:a:c:t:",["sample_list=","organ_specific_gim3e_model=","working_directory=","min_flux_weight=","unchanged_reaction_weight=","reference_flux_json=","output_prefix=","min_flux_fold_change=","imputed_reaction_fold_change=","organ_name="])
+gene_str="id"
+gz=False
+#print(sys.argv[1:])
+opts, args = getopt.getopt(sys.argv[1:],"s:m:o:w:r:f:i:a:c:t:z",["sample_list=","organ_specific_gim3e_model=","working_directory=","min_flux_weight=","unchanged_reaction_weight=","reference_flux_json=","output_prefix=","min_flux_fold_change=","imputed_reaction_fold_change=","organ_name="])
 for opt, arg in opts:
       #print opt,arg
       if opt in ("-s", "--sample_list"):
@@ -82,6 +85,8 @@ for opt, arg in opts:
       elif opt in ("-t", "--organ_name"):
           tissue_prefix= arg
           tissue_prefix_defined_flag=True 
+      elif opt in ("-z", "--gz"):
+         gz=True
 
 
 
@@ -99,7 +104,7 @@ print(use_reaction_expression)
 
 
 #Default gene parameters
-gene_parameters={"log2_str":None,"log2_factor":1,"padj_str":"dummy","p_th":1,"log2fc_th":log2fc_th,"gene_str":"NCBI.gene..formerly.Entrezgene..ID","p_weight_formula":"1","ignore_p_value":True}
+gene_parameters={"log2_str":None,"log2_factor":1,"padj_str":"dummy","p_th":1,"log2fc_th":log2fc_th,"gene_str":gene_str,"p_weight_formula":"1","ignore_p_value":True}
 source_condition=tissue_prefix
 source_model=base_model=target_model=cobra.io.read_sbml_model(sbml_file)
 
@@ -147,74 +152,59 @@ if os.path.isfile(aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv
 
 
 
-gene_data=read_spreadsheets(differential_gene_file)
-
-
-header=gene_data[list(gene_data.keys())[0]][0]
-samples=header[sample_columns:]
-samples_pending=[x for x in samples if not (os.path.exists(output_folder+"xlsx/"+x+"_qMTA.xlsx") or "dummy" in x) ]
-#sample_list_file="/rds/user/cf545/hpc-work/results/INTERVAL/personalyzed_models/sample_list.csv"
 if sample_list_file!=None:
-   sample_file=read_spreadsheets(sample_list_file)
-   sample_file=sample_file[list(sample_file.keys())[0]]
+   samples=read_spreadsheets(sample_list_file)
+   samples=sample_file[list(sample_file.keys())[0]]
    #Assume samples are in rows
-   samples_pending=[row[0] for row in sample_file]
-   del(sample_file)
+   samples=[row[0] for row in sample_file]
+   gene_data=pandas.read_csv(differential_gene_file,usecols=["id"]+samples)
 else:
-   names_to_omit=["dummy","",None,"V1"]
-   samples_pending=[x for x in header[1:] if x not in names_to_omit]
- 
- 
-print("samples selected", len(samples_pending))
-#samples_pending=samples_pending[1:3]
+    #sheet_name=list(differential_gene_sheet.keys())[0]
+    gene_data=pandas.read_csv(differential_gene_file)
+    names_to_omit=["dummy","",None,"V1","id"]
+    samples=[x for x in gene_data.columns if x not in names_to_omit]
+
+
+print("samples selected", len(samples))
+#samples=samples[1:3]
 #del(gene_data)
-del(header)
 
 
-data_dict={}
-for sample in samples_pending:
-    data_dict[sample]={"target_condition":sample}
 
-
+reaction_list=[x.id for x in target_model.reactions]
 #############
 condition_mta_vres={}
 reaction_pathway_dict={}
-for n,key in enumerate(sorted(data_dict)):
-    print("progress",n, key)
-    gene_parameters["log2_str"]= key #patient n
-    gene_file=differential_gene_file
-    target_condition=data_dict[key]["target_condition"]
+output_data=[]
+processed_samples=[]
+for n,sample in enumerate(samples):
+    print("progress",n, sample)
+    gene_parameters["log2_str"]= sample #individual n
+    selected_columns=[gene_parameters["gene_str"],gene_parameters["log2_str"]]
+    target_condition=samples
     try:
-      output_sheet_1, vres_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict=run_qMTA_gene_expression(target_model,target_model,gene_fname=gene_file,vref_dict=vref_dict,gene_parameters=gene_parameters,gene_weight=1,unchanged_reaction_weight=reaction_weight,reaction_pathway_dict=reaction_pathway_dict,key=key,output_omit_reactions_with_more_than_max_genes=False,normalize_by_scale_genes=True,min_flux4weight=min_flux_weight,coef_precision=18,normalize_by_scale_unchanged_reactions=True,differential_expression_sheet_dict=gene_data,min_flux_fold_change=min_flux_fold_change,qpmethod=0,n_threads=n_threads,sample_name=key,debug_prefix=aggregated_file_prefix,detailed_output=individual_output)
-      value_list=[vres_dict[x.id] for x in target_model.reactions ]
+      output_sheet_1, vres_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict=run_qMTA_gene_expression(target_model,target_model,gene_fname=None,vref_dict=vref_dict,gene_parameters=gene_parameters,gene_weight=1,unchanged_reaction_weight=reaction_weight,reaction_pathway_dict=reaction_pathway_dict,key=sample,output_omit_reactions_with_more_than_max_genes=False,normalize_by_scale_genes=True,min_flux4weight=min_flux_weight,coef_precision=18,normalize_by_scale_unchanged_reactions=True,differential_expression_data_frame=gene_data[selected_columns],min_flux_fold_change=min_flux_fold_change,qpmethod=0,n_threads=n_threads,sample_name=sample,debug_prefix=aggregated_file_prefix,detailed_output=individual_output)
+      value_list=[vres_dict[x] for x in reaction_list ]
       if individual_output:
-        with open("json/"+key+"_qMTA.json","w") as f:
+        with open("json/"+sample+"_qMTA.json","w") as f:
           out_dict={"value_list":value_list,"pathway_dict":variation_dict_dict}
           json.dump(out_dict,f)
-        write_spreadsheet("xlsx/"+key+"_qMTA.xlsx",output_sheet_1)
-      condition_mta_vres[key]=value_list
+        write_spreadsheet("xlsx/"+sample+"_qMTA.xlsx",output_sheet_1)
+      output_data.append(value_list)
+      processed_samples.append(sample)
     except Exception as e:
-        print(key+": "+str(e))
+        print(sample+": "+str(e))
         f=open(aggregated_file_prefix+"_samples_with_error.txt","a")
-        f.write(key+"\n")
+        f.write(sample+"\n")
         f.close()
 
 
+output_data = pandas.DataFrame(output_data)
+output_data.index = processed_samples  # Setting row names
+output_data.columns = reaction_list    # Setting column names
+
 ######Write output
-reaction_list=[x.id for x in target_model.reactions]
-list_of_pathways=[]
-rows_reactions=[["sample"]+reaction_list]
-for n,key in enumerate(sorted(data_dict)):
-   #print pathway_dict_out[key]
-   try:
-    sample=key
-    #Fluxess
-    flux_list=condition_mta_vres[key]
-    rows_reactions.append([sample]+flux_list)
-   except:
-    print("error",key)
 
-
-
-write_spreadsheet(aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv",{"1":rows_reactions})
-
+out_name=aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv"
+if(gz): out_name+=".gz"
+output_data.to_csv(out_name,index_label="rid")       

@@ -4,6 +4,7 @@ import math
 import numpy as np
 import sys
 import operator
+import pandas as pd
 #sys.path.append("/home/carles/colon/code/")
 
 import copy
@@ -30,7 +31,6 @@ from .write_spreadsheet import write_spreadsheet
 from .read_spreadsheets import read_spreadsheets
 from .cobra_functions import *
 from . import cobra_functions
-
 
 #from cobra.core.solution import LegacySolution
 
@@ -208,7 +208,7 @@ def remove_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0,rows_to_omit=["dummy
            out_rows.append(row)
     return out_rows
 """
-def find_nearZeroVar(df,uniqueCut=10 ,freqCut=95.0/10.0):
+def find_nearZeroVar(df,uniqueCut=10 ,freqCut=95.0/10.0,verbose=False):
     #Adapted from the nearZeroVar from the R caret package
     #freqCut	the cutoff for the ratio of the most common value to the second most common value
     #uniqueCut the cutoff for the percentage of distinct values out of the number of total samples
@@ -226,11 +226,13 @@ def find_nearZeroVar(df,uniqueCut=10 ,freqCut=95.0/10.0):
         if unique_values_percentatge<uniqueCut and freq_first_to_second>freqCut:
            rows_to_drop.append(index)
            mask_to_keep.append(False)
-           out_str=index+" "+str(unique_values_percentatge)+" " +str(freq_first_to_second)
-           print(out_str)
+           if verbose==True:
+              out_str=index+" "+str(unique_values_percentatge)+" " +str(freq_first_to_second)
+              print(out_str)
         else:
            rows_to_keep.append(index)
            mask_to_keep.append(True)
+    print(str(len(rows_to_drop))+" variables with near zero variance")       
     return rows_to_drop, rows_to_keep,mask_to_keep
 
 
@@ -376,6 +378,55 @@ def read_gene_data(fname,model,log2_str="log2FoldChange",log2_factor=1,padj_str=
     milp_weight_normalized_dict={x:round(milp_weight_dict[x]/milp_mean,3) for x in milp_weight_dict}
     return  up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  milp_weight_dict, milp_weight_normalized_dict
 
+
+def read_gene_data_pandas(fname,model,log2_str="log2FoldChange",log2_factor=1,padj_str="padj",p_th=0.25,log2fc_th=0,gene_str="id",p_weight_formula="-1*math.log(p_value,10)",gene_data_frame=None,ignore_p_value=False):
+    up_genes=[]
+    down_genes=[]
+    log2fold_change_dict={}
+    p_value_dict={}
+    milp_weight_dict={}
+    milp_weight_list=[] #For normalization
+    if fname !=None:
+       gene_data_frame=pd.read_csv(fname)
+    #Get indexes
+    gene_n=0 #If gene is not defined we will assume is the first one
+    for n,element in enumerate(gene_data_frame.columns): 
+           if element==None:
+               continue   
+           if log2_str==element:
+               log2_n=n
+           elif padj_str==element:
+                p_adj_n=n
+           elif gene_str==element:
+                gene_n=n
+    for n_row, row in gene_data_frame.iterrows():
+      gene_id= str(row.iloc[gene_n])
+      log2fc=row.iloc[log2_n]
+      if not ignore_p_value:
+         p_value=row.iloc[p_adj_n]
+      else:
+         p_value=0 
+      if p_value in ("NA","",None):
+         continue
+      log2fc=float(log2fc)*log2_factor
+      p_value=float(p_value)
+      #print  gene_id, log2fc, p_value   
+      if gene_id in model.genes:
+         #print row
+         if abs(log2fc)>log2fc_th and p_value<p_th:
+            if log2fc>=0:
+               up_genes.append(gene_id) 
+            elif log2fc<0:
+               down_genes.append(gene_id)
+            log2fold_change_dict[gene_id]=log2fc
+            p_value_dict[gene_id]=p_value
+            milp_weight=eval(p_weight_formula)
+            milp_weight_dict[gene_id]=milp_weight
+            milp_weight_list.append(milp_weight)    
+    
+    milp_mean=np.mean([milp_weight_dict[x] for x in milp_weight_dict])
+    milp_weight_normalized_dict={x:round(milp_weight_dict[x]/milp_mean,3) for x in milp_weight_dict}
+    return  up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  milp_weight_dict, milp_weight_normalized_dict
 
 
 def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,gene_weight=0.5,non_gene_met_reaction_weight=0.5,gene_weight_dict={},non_gene_met_reaction_weight_dict={},fold_change_dict={},vref_dict={},max_fold_change=99999999999,min_flux4weight=1e-6,normalize_by_scale_genes=True,normalize_by_scale_unchanged_reactions=True,genes_log2_to_lineal=True,precision=6,min_flux_fold_change=1e-9):
@@ -758,7 +809,7 @@ def process_mta_results(analyzed_model,vref_dict={},vres_dict={},gene_target_dic
 
 
 
-def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={},gene_parameters={},gene_weight=0.5,unchanged_reaction_weight=0.5,reaction_pathway_dict={},key="",coef_precision=7,max_reactions4gene=10,use_only_first_pathway=False,output_omit_reactions_with_more_than_max_genes=False,output_signficant_genes_only=False,normalize_by_scale_genes=True,min_flux4weight=1e-6,normalize_by_scale_unchanged_reactions=True,differential_expression_sheet_dict={},min_flux_fold_change=1e-9,qpmethod=1,n_threads=0,sample_name="",debug_prefix="",non_gene_met_reaction_weight_dict={},detailed_output=True):
+def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={},gene_parameters={},gene_weight=0.5,unchanged_reaction_weight=0.5,reaction_pathway_dict={},key="",coef_precision=7,max_reactions4gene=10,use_only_first_pathway=False,output_omit_reactions_with_more_than_max_genes=False,output_signficant_genes_only=False,normalize_by_scale_genes=True,min_flux4weight=1e-6,normalize_by_scale_unchanged_reactions=True,differential_expression_data_frame=None,min_flux_fold_change=1e-9,qpmethod=1,n_threads=0,sample_name="",debug_prefix="",non_gene_met_reaction_weight_dict={},detailed_output=True):
     ref_gene_parameters={"log2_str":"log2FoldChange","log2_factor":1,"padj_str":"padj","p_th":0.25,"log2fc_th":0,"gene_str":"NCBI.gene.ID","p_weight_formula":"-1*math.log(p_value,10)","ignore_p_value":False}
     ref_gene_parameters.update(gene_parameters)
     log2_str=ref_gene_parameters["log2_str"]
@@ -769,9 +820,7 @@ def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={
     gene_str=ref_gene_parameters["gene_str"]
     p_weight_formula=ref_gene_parameters["p_weight_formula"]
     ignore_p_value=ref_gene_parameters["ignore_p_value"]
-     
-    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=gene_fname,model=reference_model,log2_str=log2_str,log2_factor=log2_factor,padj_str=padj_str,p_th=p_th,log2fc_th=log2fc_th,gene_str=gene_str,p_weight_formula=p_weight_formula,sheet_dict=differential_expression_sheet_dict,ignore_p_value=ignore_p_value)
-    
+    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data_pandas(fname=gene_fname,model=reference_model,log2_str=log2_str,log2_factor=log2_factor,padj_str=padj_str,p_th=p_th,log2fc_th=log2fc_th,gene_str=gene_str,p_weight_formula=p_weight_formula,gene_data_frame=differential_expression_data_frame,ignore_p_value=ignore_p_value)
     quadaratic_dict, coefficient_dict, gene_target_dict, signficant_gene_list_corrected,reactions2omit=build_weight_dicts(up_genes+down_genes,reference_model,max_reactions4gene=max_reactions4gene,gene_weight=gene_weight,non_gene_met_reaction_weight=unchanged_reaction_weight,gene_weight_dict=gene_weight_normalized_dict,non_gene_met_reaction_weight_dict=non_gene_met_reaction_weight_dict,fold_change_dict=log2fold_change_dict,vref_dict=vref_dict,max_fold_change=99999999999,normalize_by_scale_genes=normalize_by_scale_genes,normalize_by_scale_unchanged_reactions=normalize_by_scale_unchanged_reactions,min_flux4weight=min_flux4weight,genes_log2_to_lineal=True,precision=coef_precision,min_flux_fold_change=min_flux_fold_change)
     problem=create_MTA_problem_quadratic(target_model,quadaratic_dict=quadaratic_dict, coefficient_dict=coefficient_dict,out_name="rMTA.lp",qpmethod=qpmethod)
     problem.parameters.timelimit.set(300)
