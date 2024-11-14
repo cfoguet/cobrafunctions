@@ -12,6 +12,7 @@ from warnings import warn
 
 import scipy
 from scipy.sparse import dok_matrix
+
 try:
     from sympy import Basic, Number
 except:
@@ -428,8 +429,77 @@ def read_gene_data_pandas(fname,model,log2_str="log2FoldChange",log2_factor=1,pa
     milp_weight_normalized_dict={x:round(milp_weight_dict[x]/milp_mean,3) for x in milp_weight_dict}
     return  up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  milp_weight_dict, milp_weight_normalized_dict
 
-
+"""
 def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,gene_weight=0.5,non_gene_met_reaction_weight=0.5,gene_weight_dict={},non_gene_met_reaction_weight_dict={},fold_change_dict={},vref_dict={},max_fold_change=99999999999,min_flux4weight=1e-6,normalize_by_scale_genes=True,normalize_by_scale_unchanged_reactions=True,genes_log2_to_lineal=True,precision=6,min_flux_fold_change=1e-9):
+    gene_met_reactions=set()
+    genes_to_omit=[]
+    quadaratic_dict={}
+    coefficient_dict={}
+    gene_target_dict={}
+    reactions2omit=[]
+    for gene_id in signficant_gene_list:
+       gene=cobra_model.genes.get_by_id(gene_id) 
+       if len(gene.reactions)>max_reactions4gene:
+          genes_to_omit.append(gene_id)
+    
+    
+    signficant_gene_list_corrected=[x for x in signficant_gene_list if x not in genes_to_omit]
+    ################## Signficant weight
+    for gene_id in signficant_gene_list_corrected:
+        if not gene_id  in cobra_model.genes:
+            continue
+        fold_change=max(min(max_fold_change,fold_change_dict[gene_id]),-max_fold_change)
+        if genes_log2_to_lineal:
+                fold_change=pow(2,fold_change)
+        for reaction in cobra_model.genes.get_by_id(gene_id).reactions:
+            rid=reaction.id
+            gene_met_reactions.add(rid)
+            vref=vref_dict[rid]
+            #Todo add correction to genes catalyzing many reactions
+            target_vref=round(vref*fold_change,7)
+            weight=float(gene_weight)
+            if normalize_by_scale_genes==True:
+               flux_factor= max(abs(pow(vref-target_vref,2)),min_flux4weight)
+               #Minimal fold change
+               flux_factor_min= max(abs(pow(vref*0.999,2)),min_flux4weight)
+               #print flux_factor, flux_factor_min
+               weight/= max(flux_factor,0)
+            if gene_id in gene_weight_dict:
+               weight*=gene_weight_dict[gene_id]
+            if abs(vref)<min_flux_fold_change:
+               weight=0 
+            if rid not in coefficient_dict or rid not in quadaratic_dict:
+               coefficient_dict[rid]=0
+               quadaratic_dict[rid]=0
+            if gene_id not in gene_target_dict:
+               gene_target_dict[gene_id]={}
+            coefficient_dict[rid]+=-2*target_vref*weight#-2ab*weight
+            quadaratic_dict[rid]+=weight*2 #b2 Multipy by 2
+            gene_target_dict[gene_id][rid]=round_sig(target_vref,4)
+            if weight==0:
+               gene_target_dict[gene_id][rid]=0  
+    
+    non_gene_met_reactions=[x for x in cobra_model.reactions if x.id not in  gene_met_reactions]
+    for reaction in non_gene_met_reactions:
+        genes_id=[x.id for x in reaction.genes]
+        if len(set(genes_id).intersection(genes_to_omit))>0:
+           reactions2omit.append(reaction.id) 
+        rid=reaction.id
+        vref=vref_dict[rid]
+        weight=non_gene_met_reaction_weight
+        if normalize_by_scale_unchanged_reactions==True:
+           #weight/= max(abs(pow(vref,2)),min_flux4weight)
+           weight/= max(abs(vref),min_flux4weight) #This works better than squared
+           #weight/= max(abs(vref),min_flux4weight) #This works better than squared
+        #if normalize_by_scale_unchanged_reactions:   
+        if rid in non_gene_met_reaction_weight_dict:
+           weight*=non_gene_met_reaction_weight_dict[rid]
+        coefficient_dict[rid]=-2*vref*weight#-2ab*weight
+        quadaratic_dict[rid]=weight*2 #b2/2 Multipy by 2 
+    return quadaratic_dict, coefficient_dict, gene_target_dict, signficant_gene_list_corrected,reactions2omit
+"""
+
+def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,gene_weight=0.5,met_weight=1,kpc_weight=1,non_gene_met_reaction_weight=0.5,gene_weight_dict={},non_gene_met_reaction_weight_dict={},fold_change_dict={},vref_dict={},max_fold_change=99999999999,min_flux4weight=1e-6,normalize_by_scale_genes=True,normalize_by_scale_unchanged_reactions=True,genes_log2_to_lineal=True,precision=6,signficant_met_dict={},normalize_by_scale_mets=True,signficant_kpc_dict={},normalize_by_scale_kpc=True,min_flux_fold_change=1e-9):
     gene_met_reactions=set()
     genes_to_omit=[]
     quadaratic_dict={}
@@ -481,6 +551,57 @@ def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,ge
             if weight==0:
                gene_target_dict[gene_id][rid]=0  
     
+    #Metabolomics
+    #met_target_dict={}
+    for met in signficant_met_dict:
+        rid=signficant_met_dict[met]["reaction"]
+        if rid in cobra_model.reactions:
+            try:
+              fold_change=math.pow(2,signficant_met_dict[met]["logfc"])
+            except:
+              fold_change=signficant_met_dict[met]["fc"]  
+            gene_met_reactions.add(rid)
+            vref=vref_dict[rid]
+            target_vref=vref*fold_change
+            weight=float(met_weight)
+            if normalize_by_scale_mets:
+               weight/= max(abs(pow(vref-target_vref,2)),min_flux4weight)
+            weight*=signficant_met_dict[met]["p_weight_norm"]
+            """if weight!=0:
+               weight=round_sig(weight,precision)"""
+            if rid not in coefficient_dict or rid not in quadaratic_dict:
+               coefficient_dict[rid]=0
+               quadaratic_dict[rid]=0
+            coefficient_dict[rid]+=-2*target_vref*weight#-2ab*weight
+            quadaratic_dict[rid]+=weight*2 #b2 Multipy by 2
+            #met_target_dict[met]={"rid":rid,"target":target_vref}
+            signficant_met_dict[met]["target_vref"]=target_vref
+    #Minimization weight for remaining reactions:
+    ####KPC
+    #metabolite_ex_dict
+    for met in signficant_kpc_dict:
+        rid=signficant_kpc_dict[met]["reaction"]
+        if rid in cobra_model.reactions:
+            #fold_change=math.pow(2,signficant_met_dict[met]["logfc"])
+            #fold_change=pow(fold_change,log2_factor_met)
+            #We do not use Fold change with reactions as it could cause issues if the reaction changes sign 
+            gene_met_reactions.add(rid)
+            vref=vref_dict[rid]
+            difference=signficant_kpc_dict[met]["mean_target"]-signficant_kpc_dict[met]["mean_source"] #We use this format to allow reversing
+            target_vref=vref+difference
+            weight=float(kpc_weight)
+            if normalize_by_scale_kpc:
+               weight/= max(abs(pow(vref-target_vref,2)),min_flux4weight)
+            weight*=signficant_kpc_dict[met]["p_weight_norm"]
+            """if weight!=0:
+               weight=round_sig(weight,precision)"""
+            if rid not in coefficient_dict or rid not in quadaratic_dict:
+               coefficient_dict[rid]=0
+               quadaratic_dict[rid]=0
+            coefficient_dict[rid]+=-2*target_vref*weight#-2ab*weight
+            quadaratic_dict[rid]+=weight*2 #b2 Multipy by 2
+            #met_target_dict[met]={"rid":rid,"target":target_vref}
+            signficant_kpc_dict[met]["target_vref"]=target_vref
     non_gene_met_reactions=[x for x in cobra_model.reactions if x.id not in  gene_met_reactions]
     for reaction in non_gene_met_reactions:
         genes_id=[x.id for x in reaction.genes]
@@ -503,8 +624,6 @@ def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,ge
         coefficient_dict[rid]=-2*vref*weight#-2ab*weight
         quadaratic_dict[rid]=weight*2 #b2/2 Multipy by 2 
     return quadaratic_dict, coefficient_dict, gene_target_dict, signficant_gene_list_corrected,reactions2omit
-
-
 
 
 def create_MTA_problem_quadratic(cobra_model,quadaratic_dict={}, coefficient_dict={},out_name="qrMTA.lp",**kwargs ):
@@ -808,7 +927,7 @@ def process_mta_results(analyzed_model,vref_dict={},vres_dict={},gene_target_dic
     return reaction_dict_dict, variation_dict_dict , output_sheet
 
 
-
+"""
 def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={},gene_parameters={},gene_weight=0.5,unchanged_reaction_weight=0.5,reaction_pathway_dict={},key="",coef_precision=7,max_reactions4gene=10,use_only_first_pathway=False,output_omit_reactions_with_more_than_max_genes=False,output_signficant_genes_only=False,normalize_by_scale_genes=True,min_flux4weight=1e-6,normalize_by_scale_unchanged_reactions=True,differential_expression_data_frame=None,min_flux_fold_change=1e-9,qpmethod=1,n_threads=0,sample_name="",debug_prefix="",non_gene_met_reaction_weight_dict={},detailed_output=True):
     ref_gene_parameters={"log2_str":"log2FoldChange","log2_factor":1,"padj_str":"padj","p_th":0.25,"log2fc_th":0,"gene_str":"NCBI.gene.ID","p_weight_formula":"-1*math.log(p_value,10)","ignore_p_value":False}
     ref_gene_parameters.update(gene_parameters)
@@ -875,11 +994,6 @@ def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={
              print("Swicthing to default qpMethod to attempt to get a solution even if its not fully optimal") 
              problem.parameters.qpmethod.set(0)
              problem.solve()
-             """if status!="optimal":
-                problem.write("debug.lp") 
-                f=open(debug_prefix+"debug.txt","a")
-                f.write(sample_name+"\n")
-                f.close()"""
                 
       solution=cplex_format_solution(problem, target_model) 
       for reaction in reference_model.reactions:
@@ -895,10 +1009,308 @@ def run_qMTA_gene_expression(target_model,reference_model,gene_fname,vref_dict={
        output_sheet={}
     return output_sheet, solution.x_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict
 
+"""
+
+def run_qMTA(target_model,reference_model,gene_fname,vref_dict={},gene_parameters={},gene_weight=0.5,met_weight=0.5,kpc_weight=0.5,unchanged_reaction_weight=0.5,reaction_pathway_dict={},key="treatment_vs_control",coef_precision=7,max_reactions4gene=10,use_only_first_pathway=False,metabolomics_file=None,met_parameters={"target_condition":"treatment1","source_condition":"control"},kpc_file=None,kpc_parameters={},output_omit_reactions_with_more_than_max_genes=False,output_signficant_genes_only=False,normalize_by_scale_genes=True,min_flux4weight=1e-6,normalize_by_scale_unchanged_reactions=True,differential_expression_data_frame=None,min_flux_fold_change=1e-9,qpmethod=1,n_threads=0,sample_name="",debug_prefix="",non_gene_met_reaction_weight_dict={},detailed_output=True):
+    ref_gene_parameters={"log2_str":"log2FoldChange","log2_factor":1,"padj_str":"padj","p_th":0.25,"log2fc_th":0,"gene_str":"NCBI.gene.ID","p_weight_formula":"-1*math.log(p_value,10)","ignore_p_value":False}
+    ref_gene_parameters.update(gene_parameters)
+    log2_str=ref_gene_parameters["log2_str"]
+    log2_factor=ref_gene_parameters["log2_factor"]
+    padj_str=ref_gene_parameters["padj_str"]
+    p_th=ref_gene_parameters["p_th"]
+    log2fc_th=ref_gene_parameters["log2fc_th"]
+    gene_str=ref_gene_parameters["gene_str"]
+    p_weight_formula=ref_gene_parameters["p_weight_formula"]
+    ignore_p_value=ref_gene_parameters["ignore_p_value"]
+    #print log2_factor
+    ####Metabolomics
+    ref_met_parameters={"metabolite_name_compartment_dict":{},"target_condition":"INVIVO_Tractament_3","source_condition":"INVIVO_Control","p_adj_th_met":0.05,"convert_to_log_met":True,"p_weight_formula_met":"-1*math.log(p_value,10)","log2_factor":1,"normalize_by_scale_met":True,"normalize_p_weight":True}
+    ref_met_parameters.update(met_parameters)
+    metabolite_name_compartment_dict=ref_met_parameters["metabolite_name_compartment_dict"]
+    target_condition=ref_met_parameters["target_condition"]
+    source_condition=ref_met_parameters["source_condition"]
+    p_adj_th_met=ref_met_parameters["p_adj_th_met"]
+    convert_to_log_met=ref_met_parameters["convert_to_log_met"]
+    p_weight_formula_met=ref_met_parameters["p_weight_formula_met"]
+    log2_factor_met=ref_met_parameters["log2_factor"]
+    normalize_by_scale_mets=ref_met_parameters["normalize_by_scale_met"]
+    normalize_p_weight_met=ref_met_parameters["normalize_p_weight"]
+    if metabolomics_file not in ("",None):
+       stat_dict=read_metabolomics_data(metabolomics_file)
+       met_sink_dict, rejected_list=add_sink_reactions_with_multiple_compartments(target_model,stat_dict,metabolite_name_compartment_dict=metabolite_name_compartment_dict,lb=None,ub=None,condition="Control",precision=7,factor=1) #This is just to make sure the reactions exists, no need to define factor or precision 
+       met_sink_dict, rejected_list=add_sink_reactions_with_multiple_compartments(reference_model,stat_dict,metabolite_name_compartment_dict=metabolite_name_compartment_dict,lb=None,ub=None,condition="Control",precision=7,factor=1) #This is just to make sure the reactions exists, no need to define factor or precision 
+       signficant_met_dict=statistical_difference_metabolomics(stat_dict,cond1=target_condition,cond2=source_condition,convert_to_log=convert_to_log_met, p_adj_th=p_adj_th_met,met_list=biocrates_name_dict,met_sink_dict=met_sink_dict,p_weight_formula=p_weight_formula_met,log2_factor_met=log2_factor_met,normalize_p_weight=normalize_p_weight_met)
+    else: signficant_met_dict={} 
+    ####KPC
+    ref_kpc_parameters={"kpc_name_dict":{},"target_condition":"","source_condition":"","p_adj_th_kpc":0.05,"p_weight_formula_kpc":"-1*math.log(p_value,10)","factor_kpc":1,"normalize_by_scale_kpc":True,"normalize_p_weight":True}
+    ref_kpc_parameters.update(kpc_parameters)
+    biocrates_kpc_ex_dict=ref_kpc_parameters["kpc_name_dict"]
+    target_condition_kpc=ref_kpc_parameters["target_condition"]
+    source_condition_kpc=ref_kpc_parameters["source_condition"]
+    p_adj_th_kpc=ref_kpc_parameters["p_adj_th_kpc"]
+    p_weight_formula_kpc=ref_kpc_parameters["p_weight_formula_kpc"]
+    normalize_by_scale_kpc=ref_kpc_parameters["normalize_by_scale_kpc"]
+    normalize_p_weight_kpc=ref_kpc_parameters["normalize_p_weight"]
+    factor_kpc=ref_kpc_parameters["factor_kpc"] #Equivalent to log2 factor
+    if kpc_file not in ("",None):
+       modify_model_for_seahorse(target_model,remove=False) 
+       modify_model_for_seahorse(reference_model,remove=False) 
+       stat_dict_kpc=read_metabolomics_data(kpc_file)
+       signficant_kpc=statistical_difference_metabolomics(stat_dict_kpc,cond1=target_condition_kpc,cond2=source_condition_kpc,convert_to_log=False, p_adj_th=p_adj_th_kpc,met_list=biocrates_kpc_ex_dict,met_sink_dict=biocrates_kpc_ex_dict,p_weight_formula=p_weight_formula_kpc,log2_factor_met=factor_kpc,normalize_p_weight=normalize_p_weight_kpc)
+    else:
+     signficant_kpc={}
+     
+    #up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=gene_fname,model=reference_model,log2_str=log2_str,log2_factor=log2_factor,padj_str=padj_str,p_th=p_th,log2fc_th=log2fc_th,gene_str=gene_str,p_weight_formula=p_weight_formula,sheet_dict=differential_expression_sheet_dict,ignore_p_value=ignore_p_value)
+    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data_pandas(fname=gene_fname,model=reference_model,log2_str=log2_str,log2_factor=log2_factor,padj_str=padj_str,p_th=p_th,log2fc_th=log2fc_th,gene_str=gene_str,p_weight_formula=p_weight_formula,gene_data_frame=differential_expression_data_frame,ignore_p_value=ignore_p_value)
+    quadaratic_dict, coefficient_dict, gene_target_dict, signficant_gene_list_corrected,reactions2omit=build_weight_dicts(up_genes+down_genes,reference_model,max_reactions4gene=max_reactions4gene,gene_weight=gene_weight,non_gene_met_reaction_weight=unchanged_reaction_weight,gene_weight_dict=gene_weight_normalized_dict,non_gene_met_reaction_weight_dict=non_gene_met_reaction_weight_dict,fold_change_dict=log2fold_change_dict,vref_dict=vref_dict,max_fold_change=99999999999,normalize_by_scale_genes=normalize_by_scale_genes,normalize_by_scale_unchanged_reactions=normalize_by_scale_unchanged_reactions,normalize_by_scale_mets=normalize_by_scale_mets,min_flux4weight=min_flux4weight,genes_log2_to_lineal=True,precision=coef_precision,signficant_met_dict=signficant_met_dict,met_weight=met_weight,signficant_kpc_dict=signficant_kpc,kpc_weight=kpc_weight,normalize_by_scale_kpc=normalize_by_scale_kpc,min_flux_fold_change=min_flux_fold_change)
+    problem=create_MTA_problem_quadratic(target_model,quadaratic_dict=quadaratic_dict, coefficient_dict=coefficient_dict,out_name="rMTA.lp",qpmethod=qpmethod)
+    problem.parameters.timelimit.set(300)
+    problem.parameters.threads.set(n_threads)
+    problem.parameters.emphasis.numerical.set(1)
+    #problem.parameters.emphasis.memory.set(True) This will reduce memory usage but also lower performance
+    #problem.parameters.workmem.set(3038) #after this value it starts to compress data
+    
+    try:
+      problem.solve()
+      status = problem.solution.get_status_string().lower()
+      if status!="optimal":
+          #raw_input("Press Enter to continue...") 
+          problem.parameters.qpmethod.set(1)
+          try:
+             print("Trying qpmethod 1")
+             problem.solve()
+             status = problem.solution.get_status_string().lower()
+             if status!="optimal":
+                raise Exception('solver error')
+          except:
+             #Reset parameters and test all methods
+             problem.parameters.reset()
+             problem.parameters.timelimit.set(150)
+             problem.parameters.threads.set(n_threads)
+             for emphasis_numerical in (0,1):
+               for method in  (2,3,4,5,6,4,1):
+                 try:
+                     print("Trying qpmethod",method,"emphasis",emphasis_numerical)
+                     problem.parameters.emphasis.numerical.set(emphasis_numerical)
+                     problem.parameters.qpmethod.set(method)
+                     problem.solve()
+                     status = problem.solution.get_status_string().lower()
+                     print("qpmethod",method,"emphasis",emphasis_numerical,status)
+                     if status=="optimal": break
+                 except:
+                     print("solver error")
+               if status=="optimal": break
+      if  status!="optimal": #Tunning parameters should not do anything not already done, but we leave it just in case
+          #raw_input("Press Enter to continue...")   
+          problem.parameters.qpmethod.set(1) 
+          print("tuning parameters")
+          try:
+             problem.parameters.tune_problem()
+             problem.parameters.write_file("parameters.txt")
+             problem.solve()
+             status = problem.solution.get_status_string().lower()
+             print("tunning",status)
+             if status!="optimal":
+                raise Exception('solver error')
+          except:
+             print("Swicthing to default qpMethod to attempt to get a solution even if its not fully optimal") 
+             problem.parameters.qpmethod.set(0)
+             problem.solve()
+             if status!="optimal":
+                problem.write("debug.lp") 
+                f=open(debug_prefix+"debug.txt","a")
+                f.write(sample_name+"\n")
+                f.close()
+                
+      solution=cplex_format_solution(problem, target_model) 
+      for reaction in reference_model.reactions:
+        if reaction.id not in solution.x_dict:
+           solution.x_dict[reaction.id]=0 
+    except: raise Exception('solver error')
+    
+    if detailed_output:       
+       reaction_dict_dict, variation_dict_dict , output_sheet=process_mta_results(reference_model,vref_dict=vref_dict,vres_dict=solution.x_dict,gene_target_dict=gene_target_dict,up_genes=up_genes,down_genes=down_genes,p_value_dict=p_value_dict,key=key,omit_reactions=output_omit_reactions_with_more_than_max_genes,reactions_2_omit=reactions2omit,reaction_pathway_dict=reaction_pathway_dict,use_only_first_pathway=use_only_first_pathway,signficant_met_dict=signficant_met_dict,signficant_kpc_dict=signficant_kpc,signficant_genes_only=output_signficant_genes_only)
+    else:
+       reaction_dict_dict={}
+       variation_dict_dict={}
+       output_sheet={}
+    return output_sheet, solution.x_dict, reaction_dict_dict, variation_dict_dict,up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict,signficant_met_dict,signficant_kpc
 
 
+#######Metabolomics reactions
+
+def add_sink_reactions_with_multiple_compartments(model,stat_dict,metabolite_name_compartment_dict={},lb=None,ub=None,condition="Control",precision=7,factor=1,compartments=[]):
+    #sink_met_dict={}
+    met_sink_dict= {}
+    rejected_list=[]
+    for met in stat_dict:
+      if met in metabolite_name_compartment_dict:
+        metabolite_id=metabolite_name_compartment_dict[met]['met_id'] #Metabolite ID without compartment tag
+        rid='SINK_'+metabolite_id
+        met_sink_dict[met]=rid   
+        if rid not in model.reactions:
+          reporter_metabolite=Metabolite("reporter_"+met)
+          for compartment in metabolite_name_compartment_dict[met]["compartment"]:
+               met_id=metabolite_id+"_"+compartment
+               if met_id in model.metabolites:
+                 sink_rid='SINK_'+met_id
+                 print(met_id, compartment, metabolite_id, rid, met)
+                 sink_reaction=Reaction(sink_rid)
+                 sink_reaction.name = 'sink of'+met_id
+                 sink_reaction.subsystem = 'sink'
+                 sink_reaction.add_metabolites({reporter_metabolite: 1.0,model.metabolites.get_by_id(met_id):-1})
+                 model.add_reactions([sink_reaction])
+          #Full reaction
+          reaction = Reaction(rid)
+          #met_sink_dict[rid]=met
+          reaction.name = 'sink of'+metabolite_id
+          reaction.subsystem = 'sink'
+          reaction.add_metabolites({reporter_metabolite: -1.0})   
+          model.add_reactions([reaction])
+        else:
+           reaction=model.reactions.get_by_id(rid)
+        if lb!=None:
+          reaction.lower_bound=round(stat_dict[met][condition][lb]*factor,precision)
+        if ub!=None: 
+          reaction.upper_bound=round(stat_dict[met][condition][ub]*factor,precision)
+          
+      else:
+       rejected_list.append(met)
+    print("done")   
+    return met_sink_dict, rejected_list
+
+#formerly read_biocrates_metabolomics_data
+def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5):
+    #Metaboanlyst like, Assume samples in rows and the fisrt row is samples name followes by condition
+    data_sheet=read_spreadsheets(metabolomics_file)
+    data_dict={}
+    n_met_dict={}
+    for sheet in data_sheet:
+      na_counter={}  
+      max_na=max_NA_fraction*(len(data_sheet[sheet])-1) 
+      for n_row,row in enumerate(data_sheet[sheet]):
+       print(row)
+       condition=row[1]
+       sample=row[0]
+       for n_col,col in enumerate(row):
+           if n_col>1:
+              if n_row==0:
+                 n_met_dict[n_col]=col.lower()
+                 print(n_met_dict)
+              else:
+                 if condition=="":
+                    continue
+                 met=n_met_dict[n_col] 
+                 #try: # to check if float
+                 try:
+                   value=float(col)
+                 except:
+                     #"""
+                     #print na_counter
+                     if met not in na_counter:
+                        na_counter[met]=1
+                     else:
+                        na_counter[met]+=1
+                     #"""  
+                     #continue
+                     value="Na"
+                 if value=="Na":
+                    continue 
+                 if met not in data_dict:
+                    data_dict[met]={}
+                 #print data_dict
+                 if condition not in data_dict[met]:
+                    data_dict[met][condition]=[]
+                 data_dict[met][condition].append(value)
+                 #print data_dict
+      #Remove NA
+      for met in na_counter:
+        n_na=na_counter[met]
+        if n_na>=max_na and met in data_dict:
+           del(data_dict[met]) 
+    stat_dict={}
+    for met in data_dict:
+           met=met.lower()
+           stat_dict[met]={}
+           for condition in data_dict[met]:
+               stat_dict[met][condition]={}
+               values=data_dict[met][condition]
+               mean=np.mean(values)
+               std=np.std(values)
+               stat_dict[met][condition]["mean"]=mean
+               stat_dict[met][condition]["std"]=std
+               stat_dict[met][condition]["se"]=std/float(len(values))
+               stat_dict[met][condition]["values"]=values
+    return stat_dict
 
 
-
+def statistical_difference_metabolomics(stat_dict,cond1="target",cond2="control",convert_to_log=True, p_adj_th=0.05,met_list=None,p_weight_formula="-1*math.log(p_value,10)",normalize_p_weight=True,met_sink_dict={},log2_factor_met=1):
+    #log2_factor_met is used to do the reverse MTA
+    if met_list==None:
+       met_list=list(stat_dict.keys()) 
+    p_value_list=[]
+    signficant_met_dict={}
+    for met in sorted(met_list):
+        if met not in stat_dict:
+           continue
+        if cond1 not in stat_dict[met]:
+           continue 
+        if cond2 not in stat_dict[met]:
+           continue 
+        values1=stat_dict[met][cond1]["values"]
+        values2=stat_dict[met][cond2]["values"]
+        mean1=stat_dict[met][cond1]["mean"]
+        mean2=stat_dict[met][cond2]["mean"] 
+        if convert_to_log:
+           comparisson=cond1+"/"+cond2 
+           values1=[math.log(x,2) for x in values1] 
+           values2=[math.log(x,2) for x in values2]
+        else:
+           comparisson=cond1+"-"+cond2  
+        result=scipy.stats.ttest_ind(values1, values2, axis=None, equal_var=True, nan_policy='propagate',alternative='two-sided')
+        p_value=result[1]
+        p_value_list.append(p_value)
+        fc=mean1/mean2
+        if convert_to_log:
+           lfc= math.log(fc,2)*log2_factor_met
+        else:
+            lfc=None
+        if log2_factor_met==1:
+           local_dict={"p_value":p_value,"fc":fc,"logfc":lfc,"mean_source":mean2,"mean_target":mean1}
+        elif log2_factor_met==-1:
+           local_dict={"p_value":p_value,"fc":fc,"logfc":lfc,"mean_source":mean1,"mean_target":mean2}
+        else:
+            raise Exception('log2_factor_met should be 1 or -1')
+        if "statistics" not in stat_dict:
+            stat_dict[met]["statistics"]={}
+        stat_dict[met]["statistics"][comparisson]=local_dict
+    ##Correct p value
+    corrected_p_values=scipy.stats.false_discovery_control(p_value_list, axis=0, method='bh') #list(r_stats.p_adjust(FloatVector(p_value_list), method = 'BH'))
+    n_counter=0
+    for met in sorted(met_list):
+         if met not in stat_dict:
+            continue
+         if "statistics" not in stat_dict[met]:
+             continue 
+         stat_dict[met]["statistics"][comparisson]["p_adj"]=corrected_p_values[n_counter]
+         p_value=corrected_p_values[n_counter]
+         values1=stat_dict[met][cond1]["values"] #To be used in formulas
+         values2=stat_dict[met][cond2]["values"] #To be used in formulas        
+         sd1=np.std(values1) #To be used in formulas
+         sd2=np.std(values2) #To be used in formulas
+         stat_dict[met]["statistics"][comparisson]["p_weight"]=eval(p_weight_formula)
+         if  corrected_p_values[n_counter]<p_adj_th:
+             signficant_met_dict[met]=stat_dict[met]["statistics"][comparisson]
+             signficant_met_dict[met]["reaction"]=met_sink_dict.get(met)
+         n_counter+=1
+    
+    if normalize_p_weight:
+       p_factor=p_mean=np.mean([ signficant_met_dict[met]["p_weight"] for met in signficant_met_dict])
+    else:
+       p_factor=p_mean=1.0 
+    p_mean_normalized_dict={met:round_sig(signficant_met_dict[met]["p_weight"]/p_mean,3) for met in signficant_met_dict}
+    for met in signficant_met_dict:
+        signficant_met_dict[met]["p_weight_norm"]=p_mean_normalized_dict[met]
+    return signficant_met_dict
 
 
