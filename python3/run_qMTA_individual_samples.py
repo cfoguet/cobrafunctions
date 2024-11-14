@@ -55,7 +55,7 @@ tissue_prefix_defined_flag=False
 gene_str="id"
 gz=False
 #print(sys.argv[1:])
-opts, args = getopt.getopt(sys.argv[1:],"s:m:o:w:r:f:i:a:c:t:z",["sample_list=","organ_specific_gim3e_model=","working_directory=","min_flux_weight=","unchanged_reaction_weight=","reference_flux_json=","output_prefix=","min_flux_fold_change=","imputed_reaction_fold_change=","organ_name="])
+opts, args = getopt.getopt(sys.argv[1:],"s:m:o:w:r:f:i:a:c:t:z",["sample_list=","organ_specific_gim3e_model=","working_directory=","min_flux_weight=","unchanged_reaction_weight=","reference_flux_json=","output_prefix=","min_flux_fold_change=","imputed_reaction_fold_change=","organ_name=","gz"])
 for opt, arg in opts:
       #print opt,arg
       if opt in ("-s", "--sample_list"):
@@ -154,9 +154,9 @@ if os.path.isfile(aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv
 
 if sample_list_file!=None:
    samples=read_spreadsheets(sample_list_file)
-   samples=sample_file[list(sample_file.keys())[0]]
+   samples=samples[list(samples.keys())[0]]
    #Assume samples are in rows
-   samples=[row[0] for row in sample_file]
+   samples=[row[0] for row in samples]
    gene_data=pandas.read_csv(differential_gene_file,usecols=["id"]+samples)
 else:
     #sheet_name=list(differential_gene_sheet.keys())[0]
@@ -177,8 +177,9 @@ condition_mta_vres={}
 reaction_pathway_dict={}
 output_data=[]
 processed_samples=[]
+n_samples=len(samples)
 for n,sample in enumerate(samples):
-    print("progress",n, sample)
+    print("progress",n,"out of",n_samples, sample)
     gene_parameters["log2_str"]= sample #individual n
     selected_columns=[gene_parameters["gene_str"],gene_parameters["log2_str"]]
     target_condition=samples
@@ -207,4 +208,4 @@ output_data.columns = reaction_list    # Setting column names
 
 out_name=aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv"
 if(gz): out_name+=".gz"
-output_data.to_csv(out_name,index_label="rid")       
+output_data.to_csv(out_name,index_label="sample")       

@@ -50,6 +50,9 @@ This script maps genetically imputed patient-specific expression patterns to org
 
 *-g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "gene_ID". If it is not present it will be assumed to be the first column in the file. 
 
+*-k, --keep_reactions_with_low_variance : Optional: Flag indicating that reactions with low variance should NOT be removed from the output
+
+*-z, --gz : Optional: Flag indicating that the output shoud be saved as an .csv.gz file. 
 
 **OUTPUTS:**
 
@@ -80,6 +83,8 @@ This script runs the quadratic metabolic transformation algorithm (qMTA). qMTA s
 *-r, --unchanged_reaction_weight* : Optional, weight given to the minimization of reactions without imputed gene expression data. Default is 1. Lower values will allow more variation in such reactions.  
 
 *-t, --organ_name* : Optional, Organ or tissue to be analysed. It should match  the organ name used in both gim3e_and_sampling.py and map_expression_to_reactions.py. If it is not provided, it will take the organ name from the organ_specific_gim3e_model file name. 
+
+*-z, --gz : Optional: Flag indicating that the output shoud be saved as an .csv.gz file. 
 
 **OUTPUTS:**
  - Personalized fluxes file: CSV with the organ-specific personalized flux values computed for each individual. 
