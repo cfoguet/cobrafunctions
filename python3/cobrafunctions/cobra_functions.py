@@ -42,6 +42,7 @@ from cobra.flux_analysis import (
 from cobra.manipulation.delete import  remove_genes
 
 def list_to_str(input_list,separator="; "):
+    if(isinstance(input_list,str)):input_list=eval(input_list)
     output=[str(x) for x in input_list]
     output = separator.join(output)
     return(output)
