@@ -5,7 +5,7 @@ from optlang.symbolics import Zero, add
 
 
 
-def simulate_reaction_ko_moma(model,reference_fluxes={},reactions_to_ko_dict={},ko_factor=0.5,ko_reference_flux={}):
+def simulate_reaction_ko_moma(model,reference_fluxes={},reactions_to_ko_dict={},ko_factor=0.5,ko_reference_flux={},quadratic=True):
    results_dict={}
    """for x in model.reactions:
        if x.id not in reference_fluxes:
@@ -14,7 +14,7 @@ def simulate_reaction_ko_moma(model,reference_fluxes={},reactions_to_ko_dict={},
        reference_fluxes = reference_fluxes.to_dict()
    if isinstance(ko_reference_flux, pd.Series):
        ko_reference_flux = ko_reference_flux.to_dict()
-   constrained_model=add_moma(model,reference_fluxes=reference_fluxes,copy_model=True)
+   constrained_model=add_moma(model,reference_fluxes=reference_fluxes,copy_model=True,linear= not quadratic)
    for nr,gene in enumerate(reactions_to_ko_dict):
         reaction_list=reactions_to_ko_dict[gene]
         with constrained_model:  #Outised this context changes are reverted automatically
@@ -36,7 +36,7 @@ def simulate_reaction_ko_moma(model,reference_fluxes={},reactions_to_ko_dict={},
 
 
 
-def add_moma(model, reference_fluxes={}, linear=True,copy_model=True):
+def add_moma(model, reference_fluxes={}, linear=False,copy_model=True,):
     r"""
     ###Adapated from cobrapy 
     Add MOMA constraints and objective representing to the `model`.
@@ -103,6 +103,12 @@ def add_moma(model, reference_fluxes={}, linear=True,copy_model=True):
            Prediction of Cellular Metabolism with Constraint-Based Models:
            The COBRA Toolbox.” Nature Protocols 2 (March 29, 2007): 727.
     """
+    prstr="Creating MOMA Model: "
+    if linear:
+       prstr+="Lineal Mode"
+    else:
+       prstr+="Quadratic Mode"
+    print(prstr)        
     #CF added
     if isinstance(reference_fluxes, pd.Series):
        reference_fluxes = reference_fluxes.to_dict()

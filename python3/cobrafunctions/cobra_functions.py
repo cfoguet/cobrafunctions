@@ -7,11 +7,14 @@ import numpy as np
 import re
 import copy
 from cobra.flux_analysis import pfba
+import math
 try:
     from cobra.flux_analysis import sample
 except:
     from cobra.sampling import sample
 
+from cobra import Reaction, Metabolite
+from cobra.core.gene import parse_gpr, eval_gpr
 
 try:
   cobra_config = cobra.Configuration()
@@ -38,6 +41,150 @@ from cobra.flux_analysis import (
 
 from cobra.manipulation.delete import  remove_genes
 
+def list_to_str(input_list,separator="; "):
+    output=[str(x) for x in input_list]
+    output = separator.join(output)
+    return(output)
+
+def clean_str(string_to_process,elements_to_remove=["[u'","'","[","]"]):
+    for x in elements_to_remove:
+        string_to_process=string_to_process.replace(x,"") 
+    return(string_to_process)
+
+
+def reaction_from_string(model,rid,r_string,bounds=None,gpr=""):
+     if rid in model.reactions:
+        new_reaction=model.reactions.get_by_id(rid)
+     else:    
+       new_reaction=Reaction(str(rid))
+       model.add_reactions([new_reaction])
+       new_reaction.build_reaction_from_string(r_string)
+     if bounds!=None:
+        new_reaction.bounds=bounds
+     if gpr!=None:
+        new_reaction.gene_reaction_rule=gpr
+     return new_reaction
+
+
+def define_reaction_group(model,reaction_dict,group_reaction_id=None,lower_bound=None,upper_bound=None,objective_coefficient=0):
+    new_reaction_id="RGROUP"
+    if group_reaction_id!=None:
+       if "RGROUP" in group_reaction_id:
+           new_reaction_id=group_reaction_id
+       else:
+           new_reaction_id+="_"+group_reaction_id
+    else:
+       for reaction_id in reaction_dict:
+           new_reaction_id+="_"+reaction_id
+    if new_reaction_id in model.reactions:
+       model.reactions.get_by_id(new_reaction_id).remove_from_model()
+    new_reaction_name="Reaction Group:"
+    for reaction_id in reaction_dict:
+        if  reaction_dict[reaction_id]>0:
+            new_reaction_name+="+"+reaction_id
+        else:
+            new_reaction_name+="-"+reaction_id
+    metabolite = Metabolite("m"+new_reaction_id,formula='',name="mGROUP"+new_reaction_id,compartment='gr')
+    group_reaction = Reaction(new_reaction_id)
+    group_reaction.name = new_reaction_name
+    group_reaction.subsystem = 'Reaction group'
+    if upper_bound!=None:
+       group_reaction.upper_bound=upper_bound
+    group_reaction.add_metabolites({metabolite:-1})
+    if objective_coefficient==None:
+        group_reaction.objective_coefficient=0
+    model.add_reactions([group_reaction])
+    group_reaction.objective_coefficient=objective_coefficient
+    theoretical_lower_bound=0
+    theoretical_upper_bound=0
+    for reaction_id in reaction_dict:
+        coef=reaction_dict[reaction_id]
+        reaction=model.reactions.get_by_id(reaction_id)
+        reaction.add_metabolites({metabolite:coef})
+        if coef>=0:
+           theoretical_upper_bound+=reaction.upper_bound
+           theoretical_lower_bound+=reaction.lower_bound
+        else:
+           theoretical_upper_bound-=reaction.lower_bound
+           theoretical_lower_bound-=reaction.upper_bound
+    if lower_bound==None:
+        group_reaction.lower_bound=min(round_down(theoretical_lower_bound,2),0)
+    else:
+        group_reaction.lower_bound=lower_bound
+    if upper_bound==None:
+        group_reaction.upper_bound=max(round_up(theoretical_upper_bound,2),1000)
+    else:
+        group_reaction.upper_bound=upper_bound
+    return group_reaction
+
+
+def round_up(number,positions):
+    exponent=pow(10,positions)
+    new_number=math.ceil(number*exponent)/exponent
+    """if new_number==number:
+       new_number=number+1.0/exponent"""
+    return new_number
+
+
+def round_down(number,positions):
+    if number==0.0:
+       return 0
+    exponent=pow(10,positions)
+    return math.floor(number*exponent-0.0001)/exponent
+    """if new_number==number:
+       new_number=number-1.0/exponent"""
+    return new_number
+
+def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
+  if reaction_id_remove==None:
+    reaction_to_remove=[]
+    reaction_to_test=[]
+    for reaction in model.reactions:
+        if reaction.upper_bound==0 and reaction.lower_bound==0:
+           reaction_to_remove.append(reaction)
+        else:
+           reaction_to_test.append(reaction)
+    print(len(reaction_to_remove), "are already blocked")
+    if fva==None:
+       fva=fva2remove=flux_variability_analysis(model,fraction_of_optimum=0.000,reaction_list=reaction_to_test)
+    else:
+       fva2remove=fva
+    original_fva=fva
+    for reaction_id in fva2remove:
+        if abs(fva2remove[reaction_id]["maximum"])<1e-8 and abs(fva2remove[reaction_id]["minimum"])<1e-8:
+            #print fva2remove[reaction_id]
+            reaction_to_remove.append(model.reactions.get_by_id(reaction_id))
+    print(len(reaction_to_remove), "to remove")
+    if not remove:
+       return  fva, [x.id for x in reaction_to_remove]
+  
+  else:
+     reaction_to_remove=[model.reactions.get_by_id(x) for x in reaction_id_remove]
+     original_fva={} 
+  for reaction in reaction_to_remove:
+        reaction.remove_from_model()
+    
+    #model.reactions.get_by_id("EX_hdcea(e)").lower_bound=0 #Set the 
+    #Remove empty genes and reactions
+  genes_to_remove=[]
+  for gene in model.genes:
+      if len(gene.reactions)==0:
+        print(gene)
+        genes_to_remove.append(gene)
+  for gene in genes_to_remove:
+        try:
+          gene.remove_from_model()  
+        except:
+           print("Gene "+ gene.id+" could not be removed")  
+  metabolites_to_remove=[]
+  for metabolite in model.metabolites:
+       if len(metabolite.reactions)==0:
+          metabolites_to_remove.append(metabolite) 
+  for metabolite in metabolites_to_remove:
+        metabolite.remove_from_model()
+  return original_fva, [x.id for x in reaction_to_remove]
+
+
 def find_gene_knockout_reactions(cobra_model, gene_list,
                                  compiled_gene_reaction_rules=None):
     """
@@ -55,18 +202,16 @@ def find_gene_knockout_reactions(cobra_model, gene_list,
         is not provided, the regular expression evaluation will be used.
         Because not all gene_reaction_rule strings can be evaluated, this
         dict must exclude any rules which can not be used with eval.
-
     """
     potential_reactions = set()
     for gene in gene_list:
-        if isinstance(gene, string_types):
+        if isinstance(gene, str):
             gene = cobra_model.genes.get_by_id(gene)
         potential_reactions.update(gene._reaction)
     gene_set = {str(i) for i in gene_list}
     if compiled_gene_reaction_rules is None:
         compiled_gene_reaction_rules = {r: parse_gpr(r.gene_reaction_rule)[0]
                                         for r in potential_reactions}
-
     return [r for r in potential_reactions
             if not eval_gpr(compiled_gene_reaction_rules[r], gene_set)]
 

@@ -578,7 +578,7 @@ def get_expression(model,file_name="gene_expression_data.xlsx",gene_method="aver
           Sufix  used by genes in the cobra model but not present in the gene expression file. In Recon 1 alternative transtricpts are indicated by appending _AT1, _AT2 , AT3_ at the end of gene. If in the gene expression file alternative scripts are not indicated in that case _AT should be defined as Sufix
     """
     genexpraw_dict={}
-    spreadsheet_dict=read_spreadsheets(file_names=file_name,csv_delimiter=',',more_than_1=False,tkinter_title="Chose a file")
+    spreadsheet_dict=read_spreadsheets(file_names=file_name,csv_delimiter=',')
     gene_expression_dict=gene_expression_dict={}
     #wb = load_workbook(file_name, read_only=True)
     #ws=wb.active
