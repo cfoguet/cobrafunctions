@@ -509,6 +509,9 @@ for key in data_dict:
         #print gene_id, score1
         #row=[clean_str(str(targets_drug_dict[gene_id])),clean_str(gene_id),clean_str(str(ko_dict_drugs[gene_id]["reactions_to_ko"])),score1, score2, score3]
         row=[list_to_str(targets_drug_dict[gene_id]),list_to_str(gene_id),list_to_str(ko_dict_drugs[gene_id]["reactions_to_ko"]),score2]
+        #Fluxes of innactive reactions will be missing on moma, we have to re add them as for the score to be comparable to the qMTA score
+        for rid in vres_dict:
+            if rid not in results_dict_moma_drug[gene_id]: results_dict_moma_drug[gene_id][rid]=0.0
         moma_score1, moma_score2, moma_score3,score_dict_ko=qMTA.get_score_qmta_genes_kpc_met(target_model,vres_dict=results_dict_moma_drug[gene_id],vref_dict=vref_dict,gene_weight_dict=gene_weight_dict,up_genes=up_genes,down_genes=down_genes,max_reactionxgene=max_reactionxgene_score,normalize_by_ref_flux=normalize_by_ref_flux_score, min_flux=min_flux,min_flux_normalization=min_flux,signficant_met_dict=signficant_met_dict_pellet,signficant_kpc_dict=signficant_met_dict_kpc)
         row+=[moma_score2]
         #row+=["",moma_score1, moma_score2, moma_score3]
