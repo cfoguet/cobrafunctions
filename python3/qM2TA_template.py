@@ -121,7 +121,7 @@ metabolite_ex_dict={'ala': 'EX_ala__L_e',
  'cit': 'EX_citr__L_e',
  'creatinine': 'EX_crtn_e',
  'gln': 'EX_gln__L_e',
- 'gl': 'EX_glu__L_e',
+ 'glu': 'EX_glu__L_e',
  'gly': 'EX_gly_e',
  'his': 'EX_his__L_e',
  'histamine': 'EX_hista_e',
@@ -178,7 +178,6 @@ normalize_by_scale_met = False
 normalize_p_weight_met = False
 
 # Mapping of intracellular metabolite names to model metabolite IDs
-metabolite_name_compartment_dict = {
 metabolite_name_compartment_dict={u'ala': {'compartment': ['c', 'x', 'm'], 'met_id': u'ala__L'},
  'alpha-aaa': {'compartment': ['c', 'm'], 'met_id': 'L2aadp'},
  'arg': {'compartment': ['c', 'm'], 'met_id': u'arg__L'},
@@ -337,7 +336,7 @@ output_sheet["merged_pathways"]=new_sheet
 
 
 #Merge sheets "in_vivo_t1__all_reactions","in_vivo_t2__all_reactions","invivo_t3__all_reactions"
-col_number_to_not_duplicate=[0:5]
+col_number_to_not_duplicate=[0,1,2,3,4]
 sheets_to_merge=[key+"_all_reactions" for key in data_dict]
 for n_1,sheet in enumerate(sheets_to_merge):
     if n_1==0:
@@ -371,12 +370,14 @@ if not search_for_targets:
 #### qM2TA Targets####
 
 #Get targets
-if os.path.isfile(drug_information_file):
- with open(drug_information_file,"r") as f:
+if not drug_information_file in ("",None,False):
+  with open(drug_information_file,"r") as f:
    temp_dict=json.load(f)
    targets_drug_dict=temp_dict["targets_drug_dict"]
-   drug_targets_metabolic_all=temp_dict["drug_targets_metabolic_all"]
-
+   #drug_targets_metabolic_all=temp_dict["drug_targets_metabolic_all"]
+else:
+  targets_drug_dict={}
+  
 
 #Add gene KD/putative_inhibitor
 for gene in base_model.genes:
@@ -434,7 +435,6 @@ for key in data_dict:
 
 
 #output_sheet={}
-min_flux_normalization=min_flux_normalization_score
 min_flux=min_flux_score
 score_dict_dict_dict={}
 sheet_dict={}
