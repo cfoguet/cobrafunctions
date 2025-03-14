@@ -20,7 +20,7 @@ from cobra import Reaction, Metabolite
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 from cobrafunctions.read_spreadsheets import read_spreadsheets, convert_first_sheet_to_pandas
 from cobrafunctions import qMTA, metabolomics_functions
-from cobrafunctions.cobra_functions import round_up, round_down, remove_innactive, clean_str
+from cobrafunctions.cobra_functions import round_up, round_down, remove_innactive, clean_str, list_to_str
 from cobrafunctions.moma import simulate_reaction_ko_moma
 from cobrafunctions.metabolomics_functions import (
     add_sink_reactions_with_multiple_compartments, read_metabolomics_data, 
@@ -390,7 +390,6 @@ for gene in base_model.genes:
 
 
 gene_ko_parameters["gene_ko_list"]=list(targets_drug_dict.keys())
-#gene_ko_parameters["gene_ko_list"]=["['10632']","['10873']"]
 
 #Restrict models not to increase more than X times the flux of Vref, Vres when looking for targets
 processed_model_dict_4targets={}
@@ -407,7 +406,7 @@ for key in data_dict:
   vref_dict={x:sampling_dict[source_condition][x]["mean"] for x in sampling_dict[source_condition]}
   if metabolomics_file not in ("",None): #This might not be needed but just in case
      stat_dict_pellets=read_metabolomics_data(metabolomics_file)  
-     met_sink_dict, rejected_list=metabolomics_functions.add_sink_reactions_with_multiple_compartments(target_model_mod,stat_dict_pellets,biocrates_name_compartment_dict=biocrates_name_compartment_dict,lb=None,ub=None,condition="Control",precision=7,factor=1)
+     met_sink_dict, rejected_list=metabolomics_functions.add_sink_reactions_with_multiple_compartments(target_model_mod,stat_dict_pellets,metabolite_name_compartment_dict=met_parameters["metabolite_name_compartment_dict"],lb=None,ub=None,condition="Control",precision=7,factor=1)
   for reaction in target_model_mod.reactions:
     vres_flux=condition_mta_vres[key][reaction.id]*restrict_factor_for_targets
     vref_flux=vref_dict[reaction.id]*restrict_factor_for_targets
@@ -493,8 +492,8 @@ for key in data_dict:
        signficant_met_dict_kpc=statistical_difference_metabolomics(stat_dict_kpc,cond1=kpc_parameters["target_condition"],cond2=kpc_parameters["source_condition"],convert_to_log=False, p_adj_th=p_adj_th_kpc_targets,met_list=metabolite_ex_dict,p_weight_formula=p_weight_formula_kpc_targets,met_sink_dict=metabolite_ex_dict,log2_factor_met=1,normalize_p_weight=normalize_p_weight_kpc_targets)
     if metabolomics_file not in ("",None,False):
        stat_dict_pellet=read_metabolomics_data(metabolomics_file)
-       met_sink_dict, rejected_list=add_sink_reactions_with_multiple_compartments(target_model_mod,stat_dict_pellet,biocrates_name_compartment_dict=biocrates_name_compartment_dict,lb=None,ub=None,condition="Control",precision=7,factor=1) 
-       signficant_met_dict_pellet=statistical_difference_metabolomics(stat_dict_pellet,cond1=met_parameters["target_condition"],cond2=met_parameters["source_condition"],convert_to_log=False, p_adj_th=p_adj_th_pellet_targets,met_list=biocrates_name_dict,p_weight_formula=p_weight_formula_met_pellet_targets  ,met_sink_dict=met_sink_dict,log2_factor_met=1,normalize_p_weight=normalize_p_weight_pellet_targets)
+       met_sink_dict, rejected_list=add_sink_reactions_with_multiple_compartments(target_model_mod,stat_dict_pellet,metabolite_name_compartment_dict=met_parameters["metabolite_name_compartment_dict"],lb=None,ub=None,condition="Control",precision=7,factor=1) 
+       signficant_met_dict_pellet=statistical_difference_metabolomics(stat_dict_pellet,cond1=met_parameters["target_condition"],cond2=met_parameters["source_condition"],convert_to_log=False, p_adj_th=p_adj_th_pellet_targets,met_list=met_parameters["metabolite_name_compartment_dict"],p_weight_formula=p_weight_formula_met_pellet_targets  ,met_sink_dict=met_sink_dict,log2_factor_met=1,normalize_p_weight=normalize_p_weight_pellet_targets)
     score_dict={}
     vres_dict=base_vres=condition_mta_vres[key]
     base_score1,base_score2,base_score3,base_dict=qMTA.get_score_qmta_genes_kpc_met(target_model,vres_dict=vres_dict,vref_dict=vref_dict,gene_weight_dict=gene_weight_dict,up_genes=up_genes,down_genes=down_genes,max_reactionxgene=max_reactionxgene_score,normalize_by_ref_flux=normalize_by_ref_flux_score, min_flux=min_flux,min_flux_normalization=min_flux,signficant_met_dict=signficant_met_dict_pellet,signficant_kpc_dict=signficant_met_dict_kpc)
