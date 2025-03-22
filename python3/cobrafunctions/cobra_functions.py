@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import cobra
-from cobra.flux_analysis import flux_variability_analysis
+import pandas as pd
+#from cobra.flux_analysis import flux_variability_analysis
 from .read_spreadsheets import read_spreadsheets
 from .write_spreadsheet import write_spreadsheet
 import numpy as np
@@ -16,12 +17,12 @@ except:
 from cobra import Reaction, Metabolite
 from cobra.core.gene import parse_gpr, eval_gpr
 
-try:
-  cobra_config = cobra.Configuration()
-  cobra_config.solver = "glpk"
+#try:
+#  cobra_config = cobra.Configuration()
+#  cobra_config.solver = "glpk"
   #print("glpk set as default solver")   
-except:
-  print("could not set glpk to default solver")   
+#except:
+#  print("could not set glpk to default solver")   
 
 
 import cobra.util.solver as sutil
@@ -222,6 +223,8 @@ from cobra import Reaction
 
 from cobra.flux_analysis.variability import flux_variability_analysis as cobra_flux_variability_analysis
 
+#This keeps the output of the function as dict to keep compatibility with old functions
+#Should be deprectaed at some point
 def flux_variability_analysis(model,fraction_of_optimum=0,tolerance_feasibility=1e-6,reaction_list=None):
        fva={}
        if reaction_list!=None:
@@ -331,42 +334,6 @@ def sampling_matrix_get_mean_sd(aggregated_results,reaction_ids,include_absolute
     return stat_dict
 
 
-def met_explorer(met_id,model,exclude_transporters=True,solve=True,hide0=True,corereactions=[],fva=None,pfba_flag=True,solution_dict={},reaction_expression_dict={}):
-    metabolite=model.metabolites.get_by_id(met_id)
-    print(metabolite.name, metabolite.formula)
-    fva_out=""
-    sol={}
-    if solution_dict not in ({},None):
-        sol= solution_dict
-        print("A")
-    elif solve:
-       if pfba_flag:
-         sol=pfba(model).fluxes.to_dict()
-       else:
-         sol=model.optimize().fluxes.to_dict()
-    
-    formula=metabolite.formula
-    for reaction in metabolite.reactions:
-        gene_expression=reaction_expression_dict.get(reaction.id)
-        if gene_expression==None:
-           gene_expression="" 
-        is_transporter=False
-        if exclude_transporters:
-           for reaction_metabolite in reaction.metabolites:
-               if reaction_metabolite.id!=metabolite.id:
-                  if reaction_metabolite.formula==formula: #If the metabolite ID is different but it has the same formula it is a transporter reaction
-                     is_transporter=True
-        if not is_transporter :
-           if fva!=None:
-                 fva_out=fva[reaction.id]
-           if solve:
-              if not hide0 or  abs(sol[reaction.id])>1e-6:
-                 print(round(sol[reaction.id],5),reaction.id, reaction.reaction, reaction.id in corereactions, fva_out,gene_expression)
-           else:
-              print(reaction.id, reaction.reaction,fva_out,gene_expression, reaction.bounds,sol.get(reaction.id))
-
-
-
 def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   if reaction_id_remove==None:
     reaction_to_remove=[]
@@ -417,7 +384,7 @@ def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   return original_fva, [x.id for x in reaction_to_remove]
 
 
-def get_equation(model,reaction_id,include_compartment=False,get_compartment_from_met_id=True):
+def get_equation(model,reaction_id,include_compartment=False,get_compartment_from_met_id=False):
     reaction=model.reactions.get_by_id(reaction_id)
     reaction_str=" "+reaction.reaction+" "
     #print reaction_str
@@ -438,3 +405,176 @@ def get_equation(model,reaction_id,include_compartment=False,get_compartment_fro
             #print x.id, x.name      
             reaction_str=reaction_str.replace(" "+x.id+" "," "+met_name+compartment_str+" ")
     return reaction_str.strip()
+
+
+
+def get_metabolites_by_name(model,metabolite_name,compartment=None):
+    met_list=[]
+    for met in model.metabolites:
+        if met.name.lower()==metabolite_name.lower():
+           if compartment==None or  compartment==met.compartment:
+              met_list.append(met)
+    return met_list
+
+
+
+def is_transport_reaction(reaction,transport_subsystem="Transport",metabolite_to_test=None):
+    #Metabolite to test is in case you only want to test if transports a specific metabolite
+    is_transporter=False
+    for reaction_metabolite1 in reaction.metabolites:
+     if(metabolite_to_test!=None):
+        if reaction_metabolite1.id!=metabolite_to_test.id: #Its not the same metabolite
+           if(reaction_metabolite1.compartment!=metabolite_to_test.compartment): #Its on different compartments
+              if reaction_metabolite1.formula==metabolite_to_test.formula or reaction_metabolite1.name==metabolite_to_test.name: #Has the same formula or name
+                 is_transporter=True 
+     else:
+       for reaction_metabolite2 in reaction.metabolites:
+        if reaction_metabolite1.id!=reaction_metabolite2.id:
+           if(reaction_metabolite1.compartment!=reaction_metabolite2.compartment):
+              if reaction_metabolite1.formula==reaction_metabolite2.formula or reaction_metabolite1.name==reaction_metabolite2.name: 
+                 is_transporter=True 
+                 break
+     if is_transporter:
+       break 
+    #Use subsystem for any we might have missed unless we only care for a specific metabolite
+    if metabolite_to_test!=None:
+      if reaction.subsystem not in (None,"") and reaction.subsystem.lower()==transport_subsystem.lower():
+       is_transporter=True
+    return(is_transporter)
+
+def is_boundary_reaction(reaction,boundary_subsystem="Exchange/demand reactions"):
+    is_boundary=False
+    if(len(reaction.metabolites)==1):
+      is_boundary=True  
+    #Use subsystem for any we might have missed
+    if reaction.subsystem.lower()==boundary_subsystem.lower():
+      is_boundary=True
+    return(is_boundary) 
+
+
+
+def met_explorer(model,met_name,met_compartment,exclude_transporters=True,solve=True,hide0=True,corereactions=[],fva=pd.DataFrame(),pfba_flag=True,flux_solution=pd.Series(),reaction_expression_dict={}):
+    metabolite=get_metabolites_by_name(model,met_name,met_compartment)[0]
+    formula=metabolite.formula
+    print(metabolite.id, metabolite.name, metabolite.formula)
+    sol={}
+    if len(flux_solution==0):
+        sol= flux_solution
+    elif solve:
+       if pfba_flag:
+         sol=pfba(model).fluxes
+       else:
+         sol=model.optimize().fluxes
+    
+    for reaction in metabolite.reactions:
+       if reaction.id in model.reactions:
+        gene_expression=reaction_expression_dict.get(reaction.id)
+        if gene_expression==None:
+           gene_expression="" 
+        is_transporter=False
+        if exclude_transporters:
+           is_transporter=is_transport_reaction(reaction,metabolite_to_test=metabolite)
+        if not is_transporter :
+           if reaction.id in fva.index:
+                 fva_out=str(fva.loc[reaction.id]["minimum"])+" "+str(fva.loc[reaction.id]["maximum"])
+           else:
+                 fva_out=""
+           if solve:
+              if not hide0 or  abs(sol[reaction.id])>1e-6:
+                 print(round(sol[reaction.id],5),reaction.id, get_equation(model,reaction.id,True), reaction.id in corereactions, fva_out,gene_expression)
+           else:
+              print(reaction.id, get_equation(model,reaction.id,True),fva_out,gene_expression, reaction.bounds,sol.get(reaction.id))
+
+
+
+
+def load_constraints(model,constraint_filename,copy_model=False,remove_innactive=False):
+    if(copy_model):
+       model=model.copy()
+    constraint_df=pd.read_csv(constraint_filename)
+    blocked_reactions=[]
+    for row in constraint_df.itertuples(index=True):
+        reaction_id=row.reaction_id
+        if(reaction_id in model.reactions):
+           lower_bound=row.lower_bound
+           upper_bound=row.upper_bound
+           objective_coefficient=row.objective_coefficient
+           print(reaction_id,lower_bound,upper_bound,objective_coefficient,get_equation(model,reaction_id,include_compartment=True,get_compartment_from_met_id=False))
+           reaction=model.reactions.get_by_id(reaction_id) 
+           reaction.lower_bound=lower_bound
+           reaction.upper_bound=upper_bound
+           if(lower_bound==0 and upper_bound==0):
+             blocked_reactions.append(reaction.id)  
+           #Only change if its different
+           if reaction.objective_coefficient!=objective_coefficient:
+              reaction.objective_coefficient=objective_coefficient
+    if remove_innactive:
+       model.remove_reactions(blocked_reactions) #it gives a warning but nothing we can do about it
+       print(len(blocked_reactions),"reactions removed from model")           
+    return(model)
+
+
+#Write Model Functions 
+
+def write_model_to_csv(model,out_prefix=None,include_metabolites=True,include_fva=False,fva_fraction_optimum=1,fva=pd.DataFrame(),include_pfba=True,pfba_solution=pd.Series()):
+    if include_pfba:
+           if len(pfba_solution)==0:
+              print("Running pFBA")  
+              pfba_solution=pfba(model).fluxes 
+    if include_fva:
+           if len(fva)==0:
+              print("Running FVA") 
+              fva=cobra_flux_variability_analysis(model=model,fraction_of_optimum=fva_fraction_optimum,processes=4,pfba_factor=None,loopless=False)
+    out_data_reactions=[]
+    for reaction in model.reactions:
+        #Get reaction type
+        if is_boundary_reaction(reaction,boundary_subsystem="Exchange/demand reactions"):
+           reaction_type="Boundary" 
+        elif is_transport_reaction(reaction,transport_subsystem="Transport",metabolite_to_test=None):
+           reaction_type="Transporter" 
+        else:
+           reaction_type="Reaction" 
+        reaction_dict={}
+        reaction_dict["reaction_id"]=reaction.id
+        reaction_dict["name"]=reaction.name
+        reaction_dict["subsystem"]=reaction.subsystem
+        reaction_dict["reaction_type"]=reaction_type
+        reaction_dict["stoichiometry_ids"]=reaction.reaction
+        reaction_dict["stoichiometry_names"]=get_equation(model,reaction.id,include_compartment=True,get_compartment_from_met_id=False)
+        reaction_dict["lower_bound"]=reaction.lower_bound
+        reaction_dict["upper_bound"]=reaction.upper_bound
+        reaction_dict["objective_coefficient"]=reaction.objective_coefficient
+        reaction_dict["gene_reaction_rule"]=reaction.gene_reaction_rule
+        if(include_pfba):
+           reaction_dict["pfba_solution"]=pfba_solution[reaction.id]
+        if(include_fva):
+          reaction_dict["fva_minimum"]=fva.loc[reaction.id]["minimum"]
+          reaction_dict["fva_maximum"]=fva.loc[reaction.id]["maximum"]
+        out_data_reactions.append(reaction_dict)
+    out_df_reactions = pd.DataFrame(out_data_reactions)
+    if(out_prefix!=None):
+      out_df_reactions.to_csv(out_prefix+"_reactions.csv",index=False)
+    #Add metabolite description    
+    if(include_metabolites):
+       out_metabolite_data=[]
+       for metabolite in model.metabolites:
+           metabolite_dict={}
+           metabolite_dict["metabolite_id"]=metabolite.id
+           metabolite_dict["name"]=metabolite.name
+           metabolite_dict["compartment"]=metabolite.compartment
+           metabolite_dict["formula"]=metabolite.formula
+           metabolite_dict["charge"]=metabolite.charge
+           metabolite_dict["n_reactions"]=len(metabolite.reactions)
+           if include_pfba:
+              total_flux=0
+              for reaction in metabolite.reactions:
+                  total_flux=+abs(pfba_solution[reaction.id])
+              metabolite_dict["metabolite_total_flux_pfba"]=total_flux
+           out_metabolite_data.append(metabolite_dict) 
+       out_df_metabolites = pd.DataFrame(out_metabolite_data)
+       if(out_prefix!=None):
+         out_df_metabolites.to_csv(out_prefix+"_metabolites.csv",index=False)
+       return(out_df_reactions,out_df_metabolites)
+    else:     
+      return(out_df_reactions)    
+
