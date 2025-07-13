@@ -8,7 +8,7 @@ dname = os.path.dirname(abspath)
 os.chdir(dname)
 
 setup(name='cobrafunctions',
-      version='1.1',
+      version='1.3',
       description='cobrafunctions',
       author='Carles Foguet',
       author_email='',

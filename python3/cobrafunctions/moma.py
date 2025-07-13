@@ -161,5 +161,3 @@ def add_moma(model, reference_fluxes={}, linear=False,copy_model=True,):
         model.objective = prob.Objective(add(obj_vars), direction="min", sloppy=True)
     return model 
 
-
-

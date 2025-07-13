@@ -49,6 +49,7 @@ def read_spreadsheets(file_names=None,csv_delimiter=',',convert_to_pandas=False)
                       for cell in xlsx_row:
                           row.append(cell.value)
                       condition_rows_dict[condition].append(row)
+           wb.close()
         else:
            csv_file=open(file_name)
            csv_reader=csv.reader(csv_file,delimiter=csv_delimiter)

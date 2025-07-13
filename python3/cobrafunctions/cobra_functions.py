@@ -578,3 +578,14 @@ def write_model_to_csv(model,out_prefix=None,include_metabolites=True,include_fv
     else:     
       return(out_df_reactions)    
 
+
+def get_exchange_reaction_from_metabolite_name(model,metabolite_name,compartment="e"):
+    met_object=get_metabolites_by_name(model,metabolite_name,compartment)
+    if len(met_object)!=1: raise Exception("Cannot Find Metabolite: "+metabolite_name)   
+    met_object=met_object[0]
+    exchange_reaction=[]
+    for reaction in met_object.reactions:
+        if len(reaction.metabolites)==1 and reaction.metabolites[met_object]==-1:
+           exchange_reaction.append(reaction)
+    if len(exchange_reaction)!=1: raise Exception("Cannot Find Single Exchange Reactions for "+metabolite_name)
+    return(exchange_reaction[0])

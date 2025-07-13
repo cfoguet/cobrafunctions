@@ -61,7 +61,7 @@ def add_sink_reactions_with_multiple_compartments(model,stat_dict,metabolite_nam
     return met_sink_dict, rejected_list
 
 #formerly read_biocrates_metabolomics_data
-def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5):
+def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5,lower_metabolite_names=True):
     #Metaboanlyst like, Assume samples in rows and the fisrt row is samples name followes by condition
     data_sheet=read_spreadsheets(metabolomics_file)
     data_dict={}
@@ -76,7 +76,9 @@ def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5):
        for n_col,col in enumerate(row):
            if n_col>1:
               if n_row==0:
-                 n_met_dict[n_col]=col.lower()
+                 if lower_metabolite_names:
+                    col=col.lower() 
+                 n_met_dict[n_col]=col
                  print(n_met_dict)
               else:
                  if condition=="":
@@ -111,7 +113,8 @@ def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5):
            del(data_dict[met]) 
     stat_dict={}
     for met in data_dict:
-           met=met.lower()
+           if lower_metabolite_names:
+              met=met.lower()
            stat_dict[met]={}
            for condition in data_dict[met]:
                stat_dict[met][condition]={}
