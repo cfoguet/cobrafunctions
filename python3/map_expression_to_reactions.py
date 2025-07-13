@@ -8,8 +8,8 @@ import math
 from cobrafunctions.read_spreadsheets import read_spreadsheets
 from cobrafunctions.write_spreadsheet import write_spreadsheet
 from cobrafunctions.gim3e import get_gene_exp
-from cobrafunctions.qMTA import read_gene_data,remove_nearZeroVar
-
+from cobrafunctions.qMTA import read_gene_data,find_nearZeroVar
+import pandas
 
 
 """
@@ -34,8 +34,9 @@ tissue_key_defined_flag=False
 sample_output=""
 sample_list_file=None
 gene_id_str="gene_id"
-
-opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name="])
+remove_reactions_with_low_variance=True
+gz=False
+opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:kz",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name=","keep_reactions_with_low_variance","gz"])
 for opt, arg in opts:
       #print opt,arg
       if opt in ("-i", "--imputed_transcript_abundance"):
@@ -59,12 +60,16 @@ for opt, arg in opts:
           tissue_key_defined_flag=True 
       elif opt in ("-g", "--gene_id_column_name"):
          gene_id_str = str(arg)
+      elif opt in ("-k", "--keep_reactions_with_low_variance"):
+         remove_reactions_with_low_variance=False
+      elif opt in ("-z", "--gz"):
+         gz=True
 
 
 #Build dict with all data
 model_dict={tissue_key:{"model":cobra.io.read_sbml_model(sbml_file), "imputed_file":imputed_file}}
 conditions_of_interest=list(model_dict.keys())#["Adipose_Subcutaneous"] #Conditions that will be analyzed with GIMME
-conditions_to_sample=conditions_to_fva=list(model_dict.keys()) # #Conditions where with FVA and sampling will be performed
+
 
 ###########Gene expression inpputs
 
@@ -123,8 +128,9 @@ for tissue_key in conditions_of_interest:
                 gene_str+=" or "+gene.id  
          reaction.gene_reaction_rule=gene_str
  n_col=column_dict[tissue_key]
- reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={})
+ reaction_expression_dict_base,value_list_base,expression_dict_base=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict={},round_reaction_expression=None)
  reaction_list=sorted(reaction_expression_dict_base)
+ ##In reactions with 2 or more absent genes, there might be discrepancies between get_gene_exp and the method below. The method below should be more accccurate
  if replace_and_with_or:
         reaction_expression_dict_base={}
         for reaction_id in reaction_list:
@@ -135,33 +141,33 @@ for tissue_key in conditions_of_interest:
                    reaction_expression_value+=expression_dict_base[gene.id]
             reaction_expression_dict_base[reaction_id]=reaction_expression_value
  #2
- differential_gene_sheet=read_spreadsheets(model_dict[tissue_key]["imputed_file"])
+ #differential_gene_sheet=read_spreadsheets(model_dict[tissue_key]["imputed_file"])
+ 
  if sample_list_file!=None:
    sample_file=read_spreadsheets(sample_list_file)
    sample_file=sample_file[list(sample_file.keys())[0]]
    #Assume samples are in rows
    samples=[row[0] for row in sample_file]
+   differential_gene_data=pandas.read_csv(model_dict[tissue_key]["imputed_file"],usecols=[gene_id_str]+samples)
  else:
-    sheet_name=list(differential_gene_sheet.keys())[0]
-    dif_header=differential_gene_sheet[sheet_name][0]
-    names_to_omit=["dummy","",None,"V1","Row.names","Gene.stable.ID","NCBI.gene..formerly.Entrezgene..ID","Gene.type","Gene.name","Gene.description","pathway","metabolic","dummy","tissue"]
-    samples=[x for x in dif_header[1:] if x not in names_to_omit]  
- #Select only the samples that we want to analyze
- column_n=[n for n,x in enumerate(differential_gene_sheet[list(differential_gene_sheet.keys())[0]][0]) if (x in samples or x in gene_id_str)]  
- for n_row,row in enumerate(differential_gene_sheet[list(differential_gene_sheet.keys())[0]]):
-     new_row=[row[x] for x in column_n]
-     differential_gene_sheet[list(differential_gene_sheet.keys())[0]][n_row]=new_row
- rows=[["id"]+[x.replace("feeding_","").replace("fasting_","") for x in reaction_list]]
+    #sheet_name=list(differential_gene_sheet.keys())[0]
+    differential_gene_data=pandas.read_csv(model_dict[tissue_key]["imputed_file"])
+    names_to_omit=[gene_id_str,"dummy","",None,"V1","Row.names","Gene.stable.ID","NCBI.gene..formerly.Entrezgene..ID","Gene.type","Gene.name","Gene.description","pathway","metabolic","dummy","tissue"]
+    samples=[x for x in differential_gene_data.columns if x not in names_to_omit]  
+ rows=[]#[["id"]+[x.replace("feeding_","").replace("fasting_","") for x in reaction_list]]
+ differential_gene_data.set_index(gene_id_str,inplace=True)
  for n,key in enumerate(samples):
   try:
-    print(str(n)+key)
+    print(str(n)+" "+key)
     reference_model=model
     log2_str=key
-    up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=None,model=reference_model,log2_str=log2_str,log2_factor=1,padj_str="ignored",p_th=1,log2fc_th=0,gene_str=gene_id_str,p_weight_formula="1",sheet_dict=differential_gene_sheet,ignore_p_value=True)
-    #Modify genes according to the fold change
+    #up_genes, down_genes, log2fold_change_dict,   p_value_dict ,  gene_weight_dict, gene_weight_normalized_dict,=read_gene_data(fname=None,model=reference_model,log2_str=log2_str,log2_factor=1,padj_str="ignored",p_th=1,log2fc_th=0,gene_str=gene_id_str,p_weight_formula="1",sheet_dict=differential_gene_sheet,ignore_p_value=True)
+    #Modify genes according to the fold changedifferential_gene_sheet
     expression_dict_sample=copy.deepcopy(expression_dict_base)
     #print log2fold_change_dict
-    for gene_id in log2fold_change_dict:
+    log2fold_change_dict=differential_gene_data[key].to_dict()
+    genes_in_both = expression_dict_base.keys() & log2fold_change_dict.keys()
+    for gene_id in genes_in_both:
         expression_dict_sample[gene_id]=expression_dict_base[gene_id]*math.pow(2,log2fold_change_dict[gene_id])
     reaction_expression_dict={}
     if replace_and_with_or:
@@ -172,10 +178,10 @@ for tissue_key in conditions_of_interest:
                 if gene.id in expression_dict_sample:
                    reaction_expression_value+=expression_dict_sample[gene.id]
             reaction_expression_dict[reaction_id]=reaction_expression_value
-    else: reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample)
+    else: reaction_expression_dict,value_list,expression_dict=get_gene_exp(model,absent_gene_expression=absent_gene_expression,percentile=True,file_name=gene_expression_file,gene_method="average",gene_prefix=gene_prefix,gene_sufix=gene_sufix,omit_reflections=True,omit_0=False,gene_value_col=n_col,verbose=False,or_mode=or_mode,expression_dict=expression_dict_sample,round_reaction_expression=None)
     #Get fold change to reation expression
     log2fold_change_dict_reactions={}
-    row=[key]
+    row=[]
     for reaction_id in reaction_list:
         if reaction_expression_dict[reaction_id]!=0:
            fc= float(reaction_expression_dict[reaction_id])/float(reaction_expression_dict_base[reaction_id])
@@ -188,11 +194,18 @@ for tissue_key in conditions_of_interest:
  #write_spreadsheet(tissue_key+"_reactions_expression_base"+sample_output+".csv",{1:rows})
  #new_row=["dummy"]+[0]*(len(rows[0])-1)
  #rows.append(new_row)
+ rows = pandas.DataFrame(rows)
+ rows.index = samples       # Setting row names
+ rows.columns = reaction_list    # Setting column names
  #Transpose
- rows=list(map(list, list(zip(*rows))))        
+ rows=rows.transpose()
  #Remove features with near zero variance
- rows=remove_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0,rows_to_omit=["dummy"])
- write_spreadsheet(tissue_key+"_reactions_expression"+sample_output+".csv",{1:rows})       
+ if(remove_reactions_with_low_variance):
+  rows_to_drop, rows_to_keep,mask_to_keep=find_nearZeroVar(rows,uniqueCut=10 ,freqCut=95.0/10.0)
+  rows=rows[mask_to_keep]
+ out_name=tissue_key+"_reactions_expression"+sample_output+".csv"
+ if(gz): out_name+=".gz"
+ rows.to_csv(out_name,index_label="id")       
 
 
 

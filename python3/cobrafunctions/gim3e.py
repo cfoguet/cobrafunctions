@@ -428,7 +428,7 @@ def create_gim3e_model(cobra_model,file_name="gene_expression_data.xlsx",metabol
     objective_reaction = Reaction('gim3e_objective')
     gim3e_indicator = Metabolite('gim3e_indicator',formula='',name='',compartment='')
     objective_reaction.add_metabolites({gim3e_indicator:-1})
-    cobra_model.add_reaction(objective_reaction)
+    cobra_model.add_reactions([objective_reaction])
     objective_reaction.objective_coefficient=-1
     total_bound=0         
     for reaction_id in penalty_dict:
@@ -578,17 +578,21 @@ def get_expression(model,file_name="gene_expression_data.xlsx",gene_method="aver
           Sufix  used by genes in the cobra model but not present in the gene expression file. In Recon 1 alternative transtricpts are indicated by appending _AT1, _AT2 , AT3_ at the end of gene. If in the gene expression file alternative scripts are not indicated in that case _AT should be defined as Sufix
     """
     genexpraw_dict={}
-    spreadsheet_dict=read_spreadsheets(file_names=file_name,csv_delimiter=',',more_than_1=False,tkinter_title="Chose a file")
+    spreadsheet_dict=read_spreadsheets(file_names=file_name,csv_delimiter=',')
     gene_expression_dict=gene_expression_dict={}
     #wb = load_workbook(file_name, read_only=True)
     #ws=wb.active
     value_list=[]
     for sheet in spreadsheet_dict:
-      for row in spreadsheet_dict[sheet]:
+      for n_row,row in enumerate(spreadsheet_dict[sheet]):
        try:   
         #geneid=str(row[0])
         if str(row[0])==None or str(row[0])=="":
              continue
+        if(n_row==0):
+           if(isinstance(row[gene_value_col], str)):
+             print(row[gene_value_col])
+             continue    
         #print row
         gene_expression_value=float(row[gene_value_col])
         if gene_expression_value==None:
@@ -659,7 +663,7 @@ def get_average_gene_expression(model,file_name,gene_method="average",gene_prefi
 
 
 
-def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=True,or_mode="max",expression_dict={},reactions_to_analyze=None):
+def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=True,or_mode="max",expression_dict={},reactions_to_analyze=None,round_reaction_expression=4):
     """
     Assigns each reaction a expression value based on the gene_expression file and the GPR rules
     """
@@ -700,7 +704,9 @@ def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene
                the_gene_re = re.compile('(^|(?<=( |\()))%s(?=( |\)|$))'%re.escape(the_gene.id))
                the_gene_reaction_relation = the_gene_re.sub(str(expression_dict[the_gene.id]), the_gene_reaction_relation) 
            #print the_gene_reaction_relation
-           expression_value=round(evaluate_gene_expression_string( the_gene_reaction_relation,or_mode=or_mode),4)
+           expression_value=evaluate_gene_expression_string( the_gene_reaction_relation,or_mode=or_mode)
+           if(not round_reaction_expression is None): 
+                  expression_value=round(expression_value,round_reaction_expression)
            reaction_expression_dict[the_reaction.id]=expression_value
            #f.write(the_reaction.id+" "+str(expression_value)+"\n")
            #print(the_reaction.id+" "+str(expression_value))    

@@ -4,9 +4,19 @@ import re
 #import Tkinter
 #import tkFileDialog
 import copy
+import pandas as pd
+
+def convert_first_sheet_to_pandas(sheet_dict):
+           #Assume all data is first sheet
+           sheet=sheet_dict[list(sheet_dict.keys())[0]]
+           header=sheet[0]
+           # Select all elements except header
+           sheet = pd.DataFrame(sheet[1:])
+           sheet.columns =header
+           return(sheet)
 
 
-def read_spreadsheets(file_names=None,csv_delimiter=',',more_than_1=True,tkinter_title="Chose a file"):
+def read_spreadsheets(file_names=None,csv_delimiter=',',convert_to_pandas=False):
     """if file_names==None:
       tk=Tkinter.Tk()
       tk.withdraw()
@@ -45,7 +55,9 @@ def read_spreadsheets(file_names=None,csv_delimiter=',',more_than_1=True,tkinter
            row_list=list(csv_reader)
            condition=(file_name.split(".")[0]).split("/")[-1] #Get the name of the file minus the extension and the path
            condition_rows_dict[condition]=row_list
-           csv_file.close() 
+           csv_file.close()
+    if(convert_to_pandas):
+       condition_rows_dict=convert_first_sheet_to_pandas(condition_rows_dict)         
     return condition_rows_dict
 
 
