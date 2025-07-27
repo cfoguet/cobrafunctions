@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import operator
 import pandas as pd
+import time
 
 import copy
 from warnings import warn
@@ -15,8 +16,7 @@ from cobra import Reaction, Metabolite
 from .write_spreadsheet import write_spreadsheet
 from .read_spreadsheets import read_spreadsheets
 from .cobra_functions import *
-from . import cobra_functions
-
+from .weighted_quadratic_flux_minimization import add_quadratic_difference_minimization
 
 #######Metabolomics functions
 
@@ -70,7 +70,7 @@ def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5,lower_metabolit
       na_counter={}  
       max_na=max_NA_fraction*(len(data_sheet[sheet])-1) 
       for n_row,row in enumerate(data_sheet[sheet]):
-       print(row)
+       #print(row)
        condition=row[1]
        sample=row[0]
        for n_col,col in enumerate(row):
@@ -79,7 +79,7 @@ def read_metabolomics_data(metabolomics_file,max_NA_fraction=0.5,lower_metabolit
                  if lower_metabolite_names:
                     col=col.lower() 
                  n_met_dict[n_col]=col
-                 print(n_met_dict)
+                 #print(n_met_dict)
               else:
                  if condition=="":
                     continue
@@ -274,3 +274,86 @@ def modify_model_for_seahorse_recon3d(model,remove=False):
        for rid in  reaction_id:
            reaction=model.reactions.get_by_id(rid)
            reaction.remove_from_model()  
+
+
+def map_metabolites_names_to_exchange_reaction(model, met_names,compartment="e",verbose=True):
+    metabolite_ex_dict={}
+    for met_name in met_names:
+     try:
+       metabolite_ex_dict[met_name]=get_exchange_reaction_from_metabolite_name(model,met_name,compartment="e").id
+       if verbose:
+          print(met_name+": mapped to "+metabolite_ex_dict[met_name]+" "+get_equation(model,metabolite_ex_dict[met_name]))
+     except:
+         print("Missing metabolite exchange reaction for "+met_name)
+    return metabolite_ex_dict
+
+def run_mfa(model, measure_stat_dict,met_reaction_dict, min_sd=0.01, condition_name="CTR_Normoxia",precision=4,verbose=True):
+    """
+    Fix experimental fluxes to the experimental values in the measure_stat_dict.
+    """
+    target_fluxes={}
+    target_fluxes_weight={}
+    for met_name in measure_stat_dict:
+        if met_name not in met_reaction_dict:
+           print("Could not map:"+met_name)
+           continue
+        rid=met_reaction_dict[met_name]
+        if rid not in model.reactions:
+           print("Misisng:"+rid)
+           continue     
+        flux_measure=measure_stat_dict[met_name][condition_name]["mean"]
+        flux_measure=round_sig(float(flux_measure),precision)
+        target_fluxes[rid]=flux_measure
+        sd=float(measure_stat_dict[met_name][condition_name]["std"])
+        sd=max(min_sd,sd)
+        weight=(1/float(sd))**2 #(because Xi formula its (v-e)/(sd2) 
+        weight=round_sig(weight,precision)
+        target_fluxes_weight[rid]=weight 
+    mfa_model=add_quadratic_difference_minimization(model, target_fluxes=target_fluxes,target_fluxes_weight=target_fluxes_weight,copy_model=True,)
+    if verbose:
+       try: mfa_model.solver.configuration.verbosity = 2
+       except: pass     
+    #mfa_model.solver.configuration.verbosity = 2
+    #mfa_model.solver.configuration.qp_method="primal"
+    #mfa_model.solver.configuration.verbosity = 2
+    start = time.time()
+    solution_mfa=mfa_model.optimize()
+    status=solution_mfa.status
+    if status != "optimal": raise Exception("MFA solution is not optimal, status: "+status)
+    print("MFA solution found with status: "+status)
+    end = time.time()
+    
+    print("MFA took "+str(end-start)+" seconds")
+    #Make a panda df with xi2 results
+    xi2_results= []
+    total_xi2=0
+    for met_name in measure_stat_dict:
+        flux_measure=float(measure_stat_dict[met_name][condition_name]["mean"])
+        sd=float(measure_stat_dict[met_name][condition_name]["std"])    
+        reaction_id=met_reaction_dict.get(met_name,"Not mapped")
+        if reaction_id not in model.reactions:
+            reaction_str=""
+        else:
+            reaction_str=get_equation(model,reaction_id)   
+        simulated_flux=solution_mfa.fluxes.get(reaction_id,pd.NA)
+        if simulated_flux is pd.NA: xi2= pd.NA
+        else: 
+            xi2= ((simulated_flux-flux_measure)/sd)**2
+            total_xi2 += xi2
+        xi2_results.append({
+            "condition": condition_name,
+            "measure": met_name,
+            "n_replicates": len(measure_stat_dict[met_name][condition_name]["values"]),    
+            "mapped_reaction_id": reaction_id,
+            "mapped_reaction": reaction_str,
+            "simulated_flux": simulated_flux,
+            "flux_measure": flux_measure,
+            "sd": sd,
+            "xi2": xi2
+        })
+    if verbose:
+        print("Xi2: "+str(total_xi2))
+        #print(pd.DataFrame(xi2_results))      
+    return solution_mfa, total_xi2, pd.DataFrame(xi2_results)
+
+

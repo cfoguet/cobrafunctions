@@ -137,7 +137,9 @@ def round_down(number,positions):
        new_number=number-1.0/exponent"""
     return new_number
 
-def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
+
+#Formerly remove_innactive
+def remove_blocked_reactions(model,remove=True,fva=None,reaction_id_remove=None,min_flux=1e-8):
   if reaction_id_remove==None:
     reaction_to_remove=[]
     reaction_to_test=[]
@@ -153,7 +155,7 @@ def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
        fva2remove=fva
     original_fva=fva
     for reaction_id in fva2remove:
-        if abs(fva2remove[reaction_id]["maximum"])<1e-8 and abs(fva2remove[reaction_id]["minimum"])<1e-8:
+        if abs(fva2remove[reaction_id]["maximum"])<min_flux and abs(fva2remove[reaction_id]["minimum"])<min_flux:
             #print fva2remove[reaction_id]
             reaction_to_remove.append(model.reactions.get_by_id(reaction_id))
     print(len(reaction_to_remove), "to remove")
@@ -162,12 +164,13 @@ def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   
   else:
      reaction_to_remove=[model.reactions.get_by_id(x) for x in reaction_id_remove]
-     original_fva={} 
-  for reaction in reaction_to_remove:
-        reaction.remove_from_model()
-    
-    #model.reactions.get_by_id("EX_hdcea(e)").lower_bound=0 #Set the 
-    #Remove empty genes and reactions
+     original_fva={}
+  model.remove_reactions(reaction_to_remove) 
+  #for reaction in reaction_to_remove:
+  #      reaction.remove_from_model()
+  #  
+  #model.reactions.get_by_id("EX_hdcea(e)").lower_bound=0 #Set the 
+  #Remove empty genes and reactions
   genes_to_remove=[]
   for gene in model.genes:
       if len(gene.reactions)==0:
@@ -333,7 +336,7 @@ def sampling_matrix_get_mean_sd(aggregated_results,reaction_ids,include_absolute
            stat_dict[reaction_ids[n]]["abs_std"]=std
     return stat_dict
 
-
+"""
 def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   if reaction_id_remove==None:
     reaction_to_remove=[]
@@ -382,7 +385,7 @@ def remove_innactive(model,remove=True,fva=None,reaction_id_remove=None):
   for metabolite in metabolites_to_remove:
         metabolite.remove_from_model()
   return original_fva, [x.id for x in reaction_to_remove]
-
+"""
 
 def get_equation(model,reaction_id,include_compartment=False,get_compartment_from_met_id=False):
     reaction=model.reactions.get_by_id(reaction_id)
@@ -488,7 +491,7 @@ def met_explorer(model,met_name,met_compartment,exclude_transporters=True,solve=
 
 
 
-def load_constraints(model,constraint_filename,copy_model=False,remove_innactive=False):
+def load_constraints(model,constraint_filename,copy_model=False,remove_innactive=False,precision=None):
     if(copy_model):
        model=model.copy()
     constraint_df=pd.read_csv(constraint_filename)
@@ -498,6 +501,9 @@ def load_constraints(model,constraint_filename,copy_model=False,remove_innactive
         if(reaction_id in model.reactions):
            lower_bound=row.lower_bound
            upper_bound=row.upper_bound
+           if precision!=None:
+              lower_bound=round_sig(lower_bound,precision)
+              upper_bound=round_sig(upper_bound,precision)
            objective_coefficient=row.objective_coefficient
            print(reaction_id,lower_bound,upper_bound,objective_coefficient,get_equation(model,reaction_id,include_compartment=True,get_compartment_from_met_id=False))
            reaction=model.reactions.get_by_id(reaction_id) 

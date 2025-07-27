@@ -34,7 +34,7 @@ def read_spreadsheets(file_names=None,csv_delimiter=',',convert_to_pandas=False)
     for file_name in file_names:
         file_type=file_name[-6:] #Take some extra caracters just in case
         if any(x in file_type for x in [".xlsx",".xlsm",".xltx",".xltm"]):
-           print(file_type)
+           #print(file_type)
            wb = load_workbook(file_name, read_only=True,data_only=True)
            for ws in wb.worksheets:
                   condition=ws.title
