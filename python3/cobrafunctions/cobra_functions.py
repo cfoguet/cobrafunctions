@@ -40,7 +40,7 @@ from cobra.flux_analysis import (
     single_gene_deletion, single_reaction_deletion, double_gene_deletion,
     double_reaction_deletion)
 
-from cobra.manipulation.delete import  remove_genes
+#from cobra.manipulation.delete import  remove_genes
 
 def list_to_str(input_list,separator="; "):
     if(isinstance(input_list,str)):input_list=eval(input_list)
@@ -174,19 +174,23 @@ def remove_blocked_reactions(model,remove=True,fva=None,reaction_id_remove=None,
   genes_to_remove=[]
   for gene in model.genes:
       if len(gene.reactions)==0:
-        print(gene)
+        #print(gene)
         genes_to_remove.append(gene)
-  for gene in genes_to_remove:
+  """for gene in genes_to_remove:
         try:
           gene.remove_from_model()  
         except:
-           print("Gene "+ gene.id+" could not be removed")  
-  metabolites_to_remove=[]
+           print("Gene "+ gene.id+" could not be removed")
+  """
+  if(len(genes_to_remove)>0):
+     cobra.manipulation.delete.remove_genes(model,genes_to_remove)            
+  """metabolites_to_remove=[]
   for metabolite in model.metabolites:
        if len(metabolite.reactions)==0:
           metabolites_to_remove.append(metabolite) 
   for metabolite in metabolites_to_remove:
-        metabolite.remove_from_model()
+        metabolite.remove_from_model()"""
+  model=cobra.manipulation.delete.prune_unused_metabolites(model)      
   return original_fva, [x.id for x in reaction_to_remove]
 
 
