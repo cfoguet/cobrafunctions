@@ -425,30 +425,50 @@ def get_metabolites_by_name(model,metabolite_name,compartment=None):
 
 
 
-def is_transport_reaction(reaction,transport_subsystem="Transport",metabolite_to_test=None):
-    #Metabolite to test is in case you only want to test if transports a specific metabolite
-    is_transporter=False
-    for reaction_metabolite1 in reaction.metabolites:
-     if(metabolite_to_test!=None):
-        if reaction_metabolite1.id!=metabolite_to_test.id: #Its not the same metabolite
-           if(reaction_metabolite1.compartment!=metabolite_to_test.compartment): #Its on different compartments
-              if reaction_metabolite1.formula==metabolite_to_test.formula or reaction_metabolite1.name==metabolite_to_test.name: #Has the same formula or name
-                 is_transporter=True 
-     else:
-       for reaction_metabolite2 in reaction.metabolites:
-        if reaction_metabolite1.id!=reaction_metabolite2.id:
-           if(reaction_metabolite1.compartment!=reaction_metabolite2.compartment):
-              if reaction_metabolite1.formula==reaction_metabolite2.formula or reaction_metabolite1.name==reaction_metabolite2.name: 
-                 is_transporter=True 
-                 break
-     if is_transporter:
-       break 
-    #Use subsystem for any we might have missed unless we only care for a specific metabolite
-    if metabolite_to_test!=None:
-      if reaction.subsystem not in (None,"") and reaction.subsystem.lower()==transport_subsystem.lower():
-       is_transporter=True
-    return(is_transporter)
-
+def is_transport_reaction(reaction, transport_subsystem="Transport", metabolite_to_test=None, strict=False):
+    """
+    Determines if a reaction is a transport reaction.
+    If strict=True, all metabolites must be transported (i.e., for every metabolite, there is a matching one in a different compartment with the same formula or name).
+    Metabolite_to_test can be provided to check if only a specific metabolite is being transported.
+    """
+    is_transporter = False
+    if strict:
+        # Check that all metabolites are transported
+        for reaction_metabolite1 in reaction.metabolites:
+            transported = False
+            for reaction_metabolite2 in reaction.metabolites:
+                if reaction_metabolite1.id != reaction_metabolite2.id and reaction_metabolite1.compartment != reaction_metabolite2.compartment:
+                    if reaction_metabolite1.formula == reaction_metabolite2.formula or reaction_metabolite1.name == reaction_metabolite2.name:
+                        transported = True
+                        break
+            if not transported:
+                return False
+        return True
+    else:
+        for reaction_metabolite1 in reaction.metabolites:
+            if metabolite_to_test is not None:
+                if reaction_metabolite1.id != metabolite_to_test.id:
+                    if reaction_metabolite1.compartment != metabolite_to_test.compartment:
+                        if (reaction_metabolite1.formula == metabolite_to_test.formula or
+                            reaction_metabolite1.name == metabolite_to_test.name):
+                            is_transporter = True
+            else:
+                for reaction_metabolite2 in reaction.metabolites:
+                    if reaction_metabolite1.id != reaction_metabolite2.id:
+                        if reaction_metabolite1.compartment != reaction_metabolite2.compartment:
+                            if (reaction_metabolite1.formula == reaction_metabolite2.formula or
+                                reaction_metabolite1.name == reaction_metabolite2.name):
+                                is_transporter = True
+                                break
+            if is_transporter:
+                break
+        # Use subsystem for any we might have missed unless we only care for a specific metabolite
+        if metabolite_to_test is not None and transport_subsystem is not None:
+            if reaction.subsystem not in (None, "") and reaction.subsystem.lower() == transport_subsystem.lower():
+                is_transporter = True
+        return is_transporter
+        
+        
 def is_boundary_reaction(reaction,boundary_subsystem="Exchange/demand reactions"):
     is_boundary=False
     if(len(reaction.metabolites)==1):
