@@ -4,7 +4,82 @@
 import pandas as pd
 import numpy as np
 import cobra
+import re
 from .cobra_functions import round_sig, get_equation
+
+def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+    #The function aims to find all the forward and reverse reactions expanded reactions
+    #For example for a reaction A + B <=> C catalyzed by two isoenzymes E1 and E2
+    #We will have the following reactions in the model
+    # R_EXP_1: A + B + E1 --> C + E1
+    # R_REV_EXP_1: C + E1 --> A + B + E1
+    # R_EXP_2: A + B + E2 --> C + E2
+    # R_REV_EXP_2: C + E2 --> A + B + E2
+    #The function will return a mapping like this
+    # {"R":{"forward_reactions":["R_EXP_1","R_EXP_2"],"reverse_reactions":["R_REV_EXP_1","R_REV_EXP_2"]},
+    
+    #Regex for reactions corresponding to isoenzymes e.g. EXP_1, EXP_2
+    isoenzyme_reaction_regex = re.compile(isoenzyme_reaction_pattern)
+
+    #Regex for reverse reactions
+    rev_regex = re.compile(reverse_reaction_pattern)
+    
+    #Initialize mapping dictionary
+    mapping_dict={}
+    #Initialize list of all reverse reactions
+    reverse_reactions=[]
+    
+    
+    for reaction in model.reactions:
+        base_reaction_id=reaction.id
+        reverse_reaction_flag=False
+        #Get Base Reaction ID by removing isoenzyme and reverse reaction patterns        
+        if isoenzyme_reaction_regex.search(base_reaction_id):
+            base_reaction_id=isoenzyme_reaction_regex.sub("",base_reaction_id)
+        if rev_regex.search(base_reaction_id):
+            base_reaction_id=rev_regex.sub("",base_reaction_id)
+            reverse_reaction_flag=True
+        #Initialize entry in mapping dictionary if not already present
+        if base_reaction_id not in mapping_dict:
+            mapping_dict[base_reaction_id]={"forward_reactions":[],"reverse_reactions":[]}
+        #Add reaction to appropriate list
+        if reverse_reaction_flag:
+            mapping_dict[base_reaction_id]["reverse_reactions"].append(reaction.id)
+            reverse_reactions.append(reaction.id)
+        else:
+            mapping_dict[base_reaction_id]["forward_reactions"].append(reaction.id)    
+    
+    return mapping_dict, reverse_reactions
+
+
+
+
+def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=None,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+    #Given a dictionary or pd.series of fluxes for a model with forward and reverse reactions, return a dictionary with net fluxes
+    if isinstance(fluxes, pd.Series):
+       fluxes = fluxes.to_dict()
+    if ec_expanded_reaction_mapping_dict is None:
+         ec_expanded_reaction_mapping_dict, reverse_reactions = get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern=reverse_reaction_pattern,isoenzyme_reaction_pattern=isoenzyme_reaction_pattern  )
+         
+
+    net_fluxes=[]
+    for net_flux_id in ec_expanded_reaction_mapping_dict:
+        flux_str=""
+        forward_flux=0
+        reverse_flux=0
+        for forward_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]:
+            forward_flux+=fluxes.get(forward_r_id,0)
+            flux_str+=forward_r_id+"="+str(round_sig(fluxes.get(forward_r_id,0),3))+";"
+        for reverse_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]:
+            reverse_flux+=fluxes.get(reverse_r_id,0)
+            flux_str+=reverse_r_id+"="+str(round_sig(fluxes.get(reverse_r_id,0),3))+";"
+        net_fluxes.append({"base_rid":net_flux_id,"flux_breakdown":flux_str,"forward_flux":forward_flux,"reverse_flux":reverse_flux,"net_flux":forward_flux - reverse_flux})
+    net_fluxes=pd.DataFrame(net_fluxes)
+    net_fluxes.set_index('base_rid',inplace=True)
+    if not output_flux_breakdown:
+       #Drop flux breakdown column
+       net_fluxes=net_fluxes.drop(columns=["flux_breakdown"])
+    return net_fluxes
 
 
 def protein_usage_pfba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_weight_dict={},enzyme_list=[],verbose=False,pfba_fraction_of_optimum=1/0.999):

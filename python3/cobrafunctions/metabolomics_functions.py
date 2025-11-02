@@ -287,7 +287,7 @@ def map_metabolites_names_to_exchange_reaction(model, met_names,compartment="e",
          print("Missing metabolite exchange reaction for "+met_name)
     return metabolite_ex_dict
 
-def run_mfa(model, measure_stat_dict,met_reaction_dict, min_sd=0.01, condition_name="CTR_Normoxia",precision=4,verbose=True):
+def run_mfa(model, measure_stat_dict,met_reaction_dict, min_sd=0.01, condition_name="CTR_Normoxia",precision=4,verbose=True,debug=False):
     """
     Fix experimental fluxes to the experimental values in the measure_stat_dict.
     """
@@ -309,7 +309,8 @@ def run_mfa(model, measure_stat_dict,met_reaction_dict, min_sd=0.01, condition_n
         weight=(1/float(sd))**2 #(because Xi formula its (v-e)/(sd2) 
         weight=round_sig(weight,precision)
         target_fluxes_weight[rid]=weight 
-    mfa_model=add_quadratic_difference_minimization(model, target_fluxes=target_fluxes,target_fluxes_weight=target_fluxes_weight,copy_model=True,)
+   #In theory, we don't need to add expanded_reaction_mapping_dict as echange reactions are not splitted
+    mfa_model=add_quadratic_difference_minimization(model, target_fluxes=target_fluxes,target_fluxes_weight=target_fluxes_weight,copy_model=True,expanded_reaction_mapping_dict={},verbose=debug,)
     if verbose:
        try: mfa_model.solver.configuration.verbosity = 2
        except: pass     

@@ -6,13 +6,116 @@ from optlang.symbolics import Zero as optlang_Zero, add #, Pow
 
 #TODO Update qMTA to use this function
 
-def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},copy_model=True,):
+def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},expanded_reaction_mapping_dict={},copy_model=True,verbose=False,):
     r"""
-    ###Adapated from cobrapy
+    ###Adapated from add_moma in cobrapy
     ###WARNING: Function will not work if there is only one target flux and its weight is 1
-    ###Adapated from add_moma
-    minimize flux^2 -2*target_flux*flux   
+    Inputs are:
+    model : cobra.Model
+        The model to add Flux Difference minimization constraints and objective to. 
+    target_fluxes : dict
+        A dictionary of target fluxes where keys are fluxes ids and values are the target flux values. If flux to reaction mapping is not provided, flux ids are assumed to be the same as reaction ids 
+    forward_reverse_net_flux_dict : dict
+        A dictionary of weights for each target flux where keys are reaction ids and values are the weights. If flux to reaction mapping is not provided, flux ids are assumed to be the same as reaction ids 
+    expanded_reaction_mapping_dict : dict
+        A dictionary mapping flux ids to forward and reverse reactions in the model. If not provided, flux ids are assumed to be the same as reaction ids and all reactions are standard reactions (no forward/reverse split). The format is:
+        {
+           "flux_id1":{"forward_reactions":["reaction_id1","reaction_id2"],"reverse_reactions":["reaction_id3"]},
+           "flux_id2":{"forward_reactions":["reaction_id4"],"reverse_reactions":[]},
+           ...
+        }       
+    verbose : bool
+        Whether to print verbose output or not. Default is False.             
     """    
+    #CF added
+    if isinstance(target_fluxes, pd.Series):
+       target_fluxes = target_fluxes.to_dict()
+    if(copy_model):
+       model=model.copy()
+    #  if forward_reverse_net_flux_dict is None assumed flux id is the same as reaction id and all reactions are standard reactions
+    if expanded_reaction_mapping_dict is None or len(expanded_reaction_mapping_dict)==0: 
+       expanded_reaction_mapping_dict={x:{"forward_reactions":[x],"reverse_reactions":[]} for x in target_fluxes.keys()}
+    
+    #Scale weights 
+    scaling_factor=max([abs(target_fluxes_weight[x])for x in target_fluxes_weight])
+    if(verbose):
+       print("Scaling factor for weights: "+str(scaling_factor))
+    #End CF added
+    if "old_objective" in model.solver.variables:
+        raise ValueError("The model is already adjusted for Flux Difference")
+    # Fall back to default QP solver if current one has no QP capability
+    if  sutil.interface_to_str(model.problem) not in sutil.qp_solvers:
+        model.solver = sutil.choose_solver(model, qp=True)
+    #if solution is None:
+    #    solution = pfba(model)
+    prob = model.problem
+    v = prob.Variable("old_objective")
+    c = prob.Constraint(
+        model.solver.objective.expression - v,
+        lb=0.0,
+        ub=0.0,
+        name="old_objective_constraint",
+    )
+    to_add = [v, c]
+    model.objective = prob.Objective(optlang_Zero, direction="min", sloppy=True)
+    obj_vars = []
+    for flux_id in target_fluxes:
+        target_flux_value = target_fluxes[flux_id]
+        weight=target_fluxes_weight[flux_id]/scaling_factor
+        
+        forward_reactions=expanded_reaction_mapping_dict[flux_id]["forward_reactions"]
+        reverse_reactions=expanded_reaction_mapping_dict[flux_id]["reverse_reactions"]
+
+        #Build the net flux expression
+        #As a default cobra splits every reactions into forward and reverse variables defined by r.flux_expression and r.forward_variable and r.reverse_variable and r.reverse_variable
+        #We will make our own net flux expression to handle the case of forward/reverse reactions
+        net_flux_expression=optlang_Zero
+        ##Forward/Standard reaction
+        for forward_rid in forward_reactions:
+           r=model.reactions.get_by_id(forward_rid)
+           if r.forward_variable.ub>0:
+              net_flux_expression+=r.forward_variable
+           if r.reverse_variable.ub>0:
+              if len(reverse_reactions)>0:
+                 raise Exception(forward_rid+":If using Forwards/Reverse reactions forward reaction should not have negative lower bound")
+              net_flux_expression-=r.reverse_variable
+        ##Reverse reaction if applicable
+        for reverse_rid in reverse_reactions:
+           r_rev=model.reactions.get_by_id(reverse_rid)
+           if r_rev.forward_variable.ub>0:
+              net_flux_expression-=r_rev.forward_variable
+           if r_rev.reverse_variable.ub>0:
+              raise Exception(reverse_rid+":Reverse reactions should not have reverse fluxes allowed")
+              #net_flux_expression+=r_rev.reverse_variable
+        if net_flux_expression is optlang_Zero:
+           if(verbose):
+              print("Skipping reaction "+flux_id+" as no flux is allowed in either direction")
+           continue #Skip reactions with no flux allowed
+        #Define net flux variable and constraint
+        net_flux = prob.Variable("net_flux_" + flux_id)
+        net_flux_const = prob.Constraint(
+                net_flux_expression - net_flux,
+                lb=0,
+                ub=0,
+                name="Cnet_flux" + flux_id,
+            )
+        to_add.extend([net_flux, net_flux_const])
+        #Define quadratic expression
+        # weight * (net_flux - target_flux_value)^2= weight * net_flux**2 - 2*weight*target_flux_value*net_flux + weight*target_flux_value**2
+        #The last term is constant and can be ignored in the optimization        
+        obj_vars.append(weight * net_flux**2 - 2*weight*target_flux_value*net_flux)
+        if(verbose):
+           print("######################## "+flux_id)
+           print("Adding flux difference minimization for reaction: "+flux_id+" with target flux: "+str(target_flux_value)+" and weight: "+str(weight) )
+           print("Net flux expression: "+str(net_flux_expression) )
+           print("Objective term: "+str(weight * net_flux**2 - 2*weight*target_flux_value*net_flux) )
+    model.add_cons_vars(to_add)
+    model.objective = prob.Objective(add(obj_vars), direction="min", sloppy=True)
+    #print(model.objective.expression)      
+    return model 
+
+"""
+def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},copy_model=True,):
     #CF added
     if isinstance(target_fluxes, pd.Series):
        target_fluxes = target_fluxes.to_dict()
@@ -43,6 +146,9 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
         r=model.reactions.get_by_id(r_id)
         flux = target_fluxes[r_id]
         weight=target_fluxes_weight[r_id]/scaling_factor
+        #As a default cobra splits every reactions into forward and reverse reactions defined by r.flux_expression
+        
+        
         dist = prob.Variable("net_flux" + r.id)
         const = prob.Constraint(
                 r.flux_expression - dist,
@@ -56,6 +162,9 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
     model.objective = prob.Objective(add(obj_vars), direction="min", sloppy=True)
     #print(model.objective.expression)      
     return model 
+
+
+"""
 
 """
 Alternative formulation. Seemed to be slower than the previous one
