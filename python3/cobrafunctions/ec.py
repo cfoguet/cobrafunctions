@@ -5,7 +5,16 @@ import pandas as pd
 import numpy as np
 import cobra
 import re
+from typing import TYPE_CHECKING, Dict, List
+
+if TYPE_CHECKING:
+    from cobra import Model, Metabolite, Reaction
+
+
 from .cobra_functions import round_sig, get_equation
+from cobra.core import Metabolite, Model, Reaction
+
+
 
 def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
     #The function aims to find all the forward and reverse reactions expanded reactions
@@ -50,6 +59,125 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
             mapping_dict[base_reaction_id]["forward_reactions"].append(reaction.id)    
     
     return mapping_dict, reverse_reactions
+
+
+"""Add reporter metabolites and reactions to measure net fluxes."""
+def add_net_flux_reporter_reactions(
+    model: "Model",
+    expanded_reaction_mapping_dict: Dict[str, Dict[str, List[str]]],
+    reporter_reaction_prefix: str ="netflux__",
+    copy_model: bool = True,
+    only_add_in_multireaction_fluxes: bool = True,
+) -> "Model":
+    """Add reporter metabolites and reactions to measure net fluxes.
+    
+    For each net flux defined in expanded_reaction_mapping_dict, this function:
+    1. Creates a reporter metabolite (e.g., "reporter_met_PGI_net")
+    2. Adds the metabolite to forward reactions (produced with stoich +1)
+    3. Adds the metabolite to reverse reactions (consumed with stoich -1)
+    4. Creates a reporter reaction that consumes the metabolite (unbounded)
+    
+    The flux through each reporter reaction equals the net flux.
+    
+    WARNING: This function modifies the model structure. It should NOT be used
+    if other options are available like get_net_fluxes_from_ec_model or
+    flux_variability_analysis_net_flux, which don't require model modification.
+    
+    Parameters
+    ----------
+    model : cobra.Model
+        The model to add reporter reactions to.
+    expanded_reaction_mapping_dict : dict
+        A dictionary mapping flux IDs to forward and reverse reactions.
+        Format:
+        {
+           "flux_id1": {
+               "forward_reactions": ["reaction_id1", "reaction_id2"],
+               "reverse_reactions": ["reaction_id3"]
+           },
+           "flux_id2": {
+               "forward_reactions": ["reaction_id4"],
+               "reverse_reactions": []
+           },
+        }
+    copy_model : bool, optional
+        Whether to copy the model before modification (default True).
+        
+    Returns
+    -------
+    cobra.Model
+        The modified model with reporter metabolites and reactions added.
+        
+    Examples
+    --------
+    >>> mapping = {
+    ...     "PGI_net": {
+    ...         "forward_reactions": ["PGI_forward"],
+    ...         "reverse_reactions": ["PGI_reverse"]
+    ...     },
+    ...     "PFK": {
+    ...         "forward_reactions": ["PFK"],
+    ...         "reverse_reactions": []
+    ...     }
+    ... }
+    >>> model_with_reporters = add_net_flux_reporter_reactions(model, mapping)
+    >>> 
+    >>> # Now you can optimize and read net fluxes directly
+    >>> solution = model_with_reporters.optimize()
+    >>> pgi_net_flux = solution.fluxes["reporter_rxn_PGI_net"]
+    >>> pfk_net_flux = solution.fluxes["reporter_rxn_PFK"]
+    """
+    if copy_model:
+        model = model.copy()
+    
+    # Check if model already has reporter reactions
+    #existing_reporters = [rxn.id for rxn in model.reactions if rxn.id.startswith(reporter_reaction_prefix)]
+    existing_reporters = [met.id for met in model.metabolites if met.id.startswith("reporter_met_")]
+    if existing_reporters:
+        raise ValueError(
+            f"Model already contains reporter metabolites: {existing_reporters}. "
+            "Cannot add net flux reporters to a model that already has them."
+        )
+    reporter_rxns_list=[]
+    for net_flux_id in expanded_reaction_mapping_dict.keys():
+        forward_reactions = expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]
+        reverse_reactions = expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]
+        n_reactions=len(forward_reactions)+len(reverse_reactions)
+        if only_add_in_multireaction_fluxes and n_reactions==1:
+           continue 
+        # Create reporter metabolite
+        reporter_met_id = f"reporter_met_{net_flux_id}"
+        reporter_met = Metabolite(reporter_met_id)
+        reporter_met.name = f"Reporter metabolite for {net_flux_id}"
+        reporter_met.compartment = "c"  # Default to cytosol
+        
+        # Add reporter metabolite to forward reactions (produced)
+        reporter_ub=10 #Starting Value, will be increase by other reactions. Starting value is supposed to give some extra tolerance
+        reporter_lb=-10 #Starting Value, will be increase by other reactions. Starting value is supposed to give some extra tolerance
+        for forward_rid in forward_reactions:
+            rxn = model.reactions.get_by_id(forward_rid)
+            rxn.add_metabolites({reporter_met: 1.0})
+            reporter_ub+=max(rxn.upper_bound,0)
+        
+        # Add reporter metabolite to reverse reactions (consumed)
+        for reverse_rid in reverse_reactions:
+            rxn = model.reactions.get_by_id(reverse_rid)
+            rxn.add_metabolites({reporter_met: -1.0})
+            reporter_lb-=max(rxn.upper_bound,0)
+        
+        # Create reporter reaction that consumes the metabolite
+        reporter_rxn_id = reporter_reaction_prefix + net_flux_id
+        reporter_rxn = Reaction(reporter_rxn_id)
+        reporter_rxn.name = f"Reporter reaction for {net_flux_id}"
+        reporter_rxn.lower_bound = reporter_lb  # Sum of forward reactions bounds with some extra marging
+        reporter_rxn.upper_bound = reporter_ub   # Sum of reverse reactions bounds with some extra margin
+        reporter_rxn.add_metabolites({reporter_met: -1.0})
+        reporter_rxns_list.append(reporter_rxn)
+    # Add reporter reactions to model
+    model.add_reactions(reporter_rxns_list)
+    
+    return model
+
 
 
 
