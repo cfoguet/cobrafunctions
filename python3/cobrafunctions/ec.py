@@ -16,7 +16,7 @@ from cobra.core import Metabolite, Model, Reaction
 
 
 
-def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",patterns_to_ommit=["^usage_prot_"],verbose=True):
     #The function aims to find all the forward and reverse reactions expanded reactions
     #For example for a reaction A + B <=> C catalyzed by two isoenzymes E1 and E2
     #We will have the following reactions in the model
@@ -29,9 +29,20 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     
     #Regex for reactions corresponding to isoenzymes e.g. EXP_1, EXP_2
     isoenzyme_reaction_regex = re.compile(isoenzyme_reaction_pattern)
+    if verbose:
+       print("Isoenzyme reaction pattern regex: "+isoenzyme_reaction_pattern)
 
     #Regex for reverse reactions
     rev_regex = re.compile(reverse_reaction_pattern)
+    if verbose:
+       print("Reverse reaction pattern regex: "+reverse_reaction_pattern)
+    #Regex for patterns to ommit. Merge them into a single regex
+    if len(patterns_to_ommit)>0:
+       ommit_pattern_regex = re.compile("|".join(patterns_to_ommit))
+       if verbose:
+          print("Ommitting reactions matching patterns: "+str(patterns_to_ommit))
+    else:
+       ommit_pattern_regex = None
     
     #Initialize mapping dictionary
     mapping_dict={}
@@ -42,6 +53,10 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     for reaction in model.reactions:
         base_reaction_id=reaction.id
         reverse_reaction_flag=False
+        #Skip reactions matching ommit patterns
+        if ommit_pattern_regex is not None:
+           if ommit_pattern_regex.search(base_reaction_id):
+               continue
         #Get Base Reaction ID by removing isoenzyme and reverse reaction patterns        
         if isoenzyme_reaction_regex.search(base_reaction_id):
             base_reaction_id=isoenzyme_reaction_regex.sub("",base_reaction_id)
@@ -152,12 +167,14 @@ def add_net_flux_reporter_reactions(
         reporter_met.compartment = "c"  # Default to cytosol
         
         # Add reporter metabolite to forward reactions (produced)
-        reporter_ub=10 #Starting Value, will be increase by other reactions. Starting value is supposed to give some extra tolerance
-        reporter_lb=-10 #Starting Value, will be increase by other reactions. Starting value is supposed to give some extra tolerance
+        reporter_ub=0 #Starting Value, will be increase by other reactions.
+        reporter_lb=0 #Starting Value, will be increase by other reactions. 
         for forward_rid in forward_reactions:
             rxn = model.reactions.get_by_id(forward_rid)
             rxn.add_metabolites({reporter_met: 1.0})
             reporter_ub+=max(rxn.upper_bound,0)
+            reporter_lb+=min(rxn.lower_bound,0) #if a reaction has not been split it will still have a lower bound
+
         
         # Add reporter metabolite to reverse reactions (consumed)
         for reverse_rid in reverse_reactions:

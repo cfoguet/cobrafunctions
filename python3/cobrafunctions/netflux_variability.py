@@ -69,40 +69,38 @@ def _fva_step_net_flux(flux_id: str) -> tuple:
     forward_reactions = _expanded_mapping[flux_id]["forward_reactions"]
     reverse_reactions = _expanded_mapping[flux_id]["reverse_reactions"]
     
-    # Build the net flux expression
-    net_flux_expression = Zero
+    # Collect variables and coefficients for objective
+    coef_dict = {}
     
-    # Forward/Standard reactions
+    # Forward/Standard reactions: forward_var gets +1, reverse_var gets -1
     for forward_rid in forward_reactions:
         r = _model.reactions.get_by_id(forward_rid)
         if r.forward_variable.ub > 0:
-            net_flux_expression += r.forward_variable
+            coef_dict[r.forward_variable] = 1
         if r.reverse_variable.ub > 0:
             if len(reverse_reactions) > 0:
                 raise Exception(
                     f"{forward_rid}: If using forward/reverse reactions, "
                     "forward reaction should not have negative lower bound"
                 )
-            net_flux_expression -= r.reverse_variable
+            coef_dict[r.reverse_variable] = -1
     
-    # Reverse reactions if applicable
+    # Reverse reactions: forward_var gets -1 (reverse the direction)
     for reverse_rid in reverse_reactions:
         r_rev = _model.reactions.get_by_id(reverse_rid)
         if r_rev.forward_variable.ub > 0:
-            net_flux_expression -= r_rev.forward_variable
+            coef_dict[r_rev.forward_variable] = -1
         if r_rev.reverse_variable.ub > 0:
             raise Exception(
                 f"{reverse_rid}: Reverse reactions should not have reverse fluxes allowed"
             )
     
-    if net_flux_expression is Zero:
+    if not coef_dict:
         logger.warning(f"Skipping flux {flux_id} as no flux is allowed in either direction")
         return flux_id, float("nan")
     
-    # Set objective to the net flux expression
-    _model.solver.objective.set_linear_coefficients(
-        {var: coef for var, coef in net_flux_expression.as_coefficients_dict().items()}
-    )
+    # Set objective coefficients directly
+    _model.solver.objective.set_linear_coefficients(coef_dict)
     
     _model.slim_optimize()
     sutil.check_solver_status(_model.solver.status)
@@ -119,7 +117,7 @@ def _fva_step_net_flux(flux_id: str) -> tuple:
     
     # Reset coefficients
     _model.solver.objective.set_linear_coefficients(
-        {var: 0 for var in net_flux_expression.as_coefficients_dict().keys()}
+        {var: 0 for var in coef_dict.keys()}
     )
     
     return flux_id, value
@@ -131,11 +129,14 @@ def flux_variability_analysis_net_flux(
     flux_list: Optional[List[str]] = None,
     fraction_of_optimum: float = 1.0,
     processes: Optional[int] = None,
+    solver_tolerance_feasibility: Optional[float] = None,
+    solver_tolerance_optimality: Optional[float] = None,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """Determine the minimum and maximum net flux value for each flux.
 
     Note precision can be incrased with: model.solver.configuration.tolerances.feasibility = 1e-9
-    
+    Setting processes to might also increase reproducibility
     This is similar to standard FVA but operates on net fluxes defined by
     forward and reverse reaction mappings, useful for models with split
     reversible reactions or when you want to analyze net flux across
@@ -166,7 +167,10 @@ def flux_variability_analysis_net_flux(
         fraction times maximum objective value (default 1.0).
     processes : int, optional
         The number of parallel processes to run (default None).
-
+    solver_tolerance_feasibility : float, optional
+        If provided, temporarily sets the solver's feasibility tolerance. Default in cobra is 1e-6.
+    solver_tolerance_optimality : float, optional
+        If provided, temporarily sets the solver's optimality tolerance. Default in cobra is 1e-7
     Returns
     -------
     pandas.DataFrame
@@ -205,11 +209,14 @@ def flux_variability_analysis_net_flux(
     
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
-        print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+")
+        if verbose:
+           print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model, 
             reverse_reaction_pattern="_REV", 
-            isoenzyme_reaction_pattern="_EXP_\\d+"
+            isoenzyme_reaction_pattern="_EXP_\\d+",
+            patterns_to_ommit=["^usage_prot_"],
+            verbose=False
         )
     
     if flux_list is None:
@@ -221,7 +228,8 @@ def flux_variability_analysis_net_flux(
             raise ValueError(
                 f"The following flux IDs are not in expanded_reaction_mapping_dict: {missing}"
             )
-
+    if verbose:
+        print(f"Calculating FVA for {len(flux_list)} net fluxes...")
     if processes is None:
         processes = configuration.processes
 
@@ -235,7 +243,17 @@ def flux_variability_analysis_net_flux(
         },
         index=flux_list,
     )
-    
+    # Adjust solver tolerances if specified
+    if solver_tolerance_feasibility is not None:
+        if verbose:
+            print(f"Setting solver feasibility tolerance to {solver_tolerance_feasibility} for FVA")
+        old_tolerance = model.solver.configuration.tolerances.feasibility
+        model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
+    if solver_tolerance_optimality is not None:
+        if verbose:
+            print(f"Setting solver optimality tolerance to {solver_tolerance_optimality} for FVA")
+        old_optimality_tolerance = model.solver.configuration.tolerances.optimality
+        model.solver.configuration.tolerances.optimality = solver_tolerance_optimality  
     prob = model.problem
     with model:
         # Safety check before setting up FVA
@@ -283,5 +301,8 @@ def flux_variability_analysis_net_flux(
                 )
                 for flux_id, value in map(_fva_step_net_flux, flux_list):
                     fva_result.at[flux_id, what] = value
-
+    if solver_tolerance_feasibility is not None:
+        model.solver.configuration.tolerances.feasibility = old_tolerance
+    if solver_tolerance_optimality is not None:
+        model.solver.configuration.tolerances.optimality = old_optimality_tolerance
     return fva_result[["minimum", "maximum"]]
