@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 import cobra
 import re
+import copy
+
 from typing import TYPE_CHECKING, Dict, List
 
 if TYPE_CHECKING:
@@ -13,6 +15,7 @@ if TYPE_CHECKING:
 
 from .cobra_functions import round_sig, get_equation
 from cobra.core import Metabolite, Model, Reaction
+from cobra.util import solver as sutil
 
 
 
@@ -226,7 +229,7 @@ def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_exp
        net_fluxes=net_fluxes.drop(columns=["flux_breakdown"])
     return net_fluxes
 
-
+"""
 def protein_usage_pfba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_weight_dict={},enzyme_list=[],verbose=False,pfba_fraction_of_optimum=1/0.999):
     #This will minimize the total protein usage in the model
     #Input must be an ec model with protein usage reactions
@@ -275,7 +278,64 @@ def protein_usage_pfba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_weight_d
              print("pFBA status "+pfba_solution.status) 
              print(pfba_solution)
     return pfba_solution, objective_dict
+"""
+#Replaces protein usage pfba which had some issues
+def minimize_protein_usage_fba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_weight_dict={},enzyme_list=[],base_minimization_coefficient=0.1,verbose=False,fraction_of_optimum=1):
+    #This will minimize the total protein usage in the model
+    #Input must be an ec model with protein usage reactions
+    #If enzyme list is empty all enzymes in the model will be used
+    # enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
+    #gene_weights can be used to provide additional weights to genes (for instance based on expression). High values means that the enzyme will be less likely to be used
+    #genes are taken from the gene associated to the protein usage reaction
+    #Note that because our objectibe is a minimization , fraction of optimum must be >1
+    model_min_enzyme_usage=ec_model.copy()
+    #Set objetcive 
+    sutil.fix_objective_as_constraint(model_min_enzyme_usage, fraction=fraction_of_optimum)
+    
+    
+    if len(enzyme_list)==0:
+           enzyme_list=[x.id.replace("usage_prot_","") for x in model_min_enzyme_usage.reactions.query("usage_prot_")]
+    if verbose:
+           print("N Minimized Enzymes: "+str(len(enzyme_list)))
+           print("Base Minimization Weight:"+str(base_minimization_coefficient))
+           print("Setting Objectives")
+    objective_dict={}
+    for enzyme in enzyme_list:
+            reaction=model_min_enzyme_usage.reactions.get_by_id("usage_prot_"+enzyme)
+            #Scaled_enzyme_usage is -1/scaled_kcat*E=-1/(kcat/enzyme_kcat_scaling_factor)*E=-1*enzyme_kcat_scaling_factor/kcat*E  
+            # Hence real enzyme usage is Scaled_enzyme_usage/enzyme_kcat_scaling_factor 
+            #Reactions wth higher kcat will have a lower objective coefficient 
+            kcat_scaling_factor=enzyme_kcat_scaling_factor_dict.get(enzyme,1) #If not found assume 1
+            genes=list(reaction.genes)
+            if len(genes)!=1:
+                raise Exception("Wrong number of genes in "+reaction.id)
+            gene_weight=gene_weight_dict.get(genes[0].id,1) #If not found assume 1
+            #print(reaction.id,genes[0].id,gene_weight,gene_weight_dict.get(genes[0].id,None))
+            #reaction.objective_coefficient=round_sig(-1/kcat_scaling_factor,2) #Minimize total protein usage scaled by kcat
+            #We want to minimize the real usage which is scaled by the kcat scaling factor
+            #Because usage reactions are defined as negative (prot_A0A0U1RQ18 <--) the objective coefficient must be positive (maximize)           
+            #objective_dict[reaction]=base_minimization_coefficient+gene_weight/kcat_scaling_factor #Minimize total protein usage scaled kcat scaling factor and gene weight 
+            objective_dict[reaction.reverse_variable]=base_minimization_coefficient+gene_weight/kcat_scaling_factor #Minimize total protein usage scaled kcat scaling factor and gene weight 
 
+        #Lets scale the objective to avoid very small coefficients
+    median_coefficient=np.median([objective_dict[x] for x in objective_dict])
+    if verbose:
+           print("Median objective coefficient before scaling "+str(median_coefficient))
+    for reaction in objective_dict:
+            #if we are mininimizing the reverase reaction it must be negative
+            objective_dict[reaction]=-1*min(max(round_sig(objective_dict[reaction]/median_coefficient,3),1e-3),1000) #Avoid very small or very large coefficients
+            #print(reaction.id,objective_dict[reaction])      
+    if verbose:
+           print("Minimum objective coefficient after scaling "+str(np.min([objective_dict[x] for x in objective_dict])))
+           print("Maximum objective coefficient after scaling "+str(np.max([objective_dict[x] for x in objective_dict])))
+           #print("Running pFBA")
+    #model_min_enzyme_usage.objective=objective_dict
+    model_min_enzyme_usage.solver.objective.set_linear_coefficients(objective_dict)
+    sol=model_min_enzyme_usage.optimize()
+    if verbose:
+             print("Sol status "+sol.status) 
+             print(sol)
+    return sol, model_min_enzyme_usage
 
 
 def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene_expression_df,gene_id_column="Gene name",gene_expression_column="tpm_normoxia_mean",only_nonzero_enzymes=True):
@@ -334,13 +394,26 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
    enzyme_usage_df=enzyme_usage_df.sort_values('ratio_enzyme_usage_to_expression', ascending=False)
    return(enzyme_usage_df, max_ratio,quantile_ratio_95)
 
-def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,enzyme_to_gene_expression_factor=1):
+def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,enzyme_to_gene_expression_factor=1,reactions_to_omit=[],proteins_to_omit=[]):
     #Set enzyme usage bounds based on gene expression
     #Gene expression is converted to enzyme usage by multiplying by enzyme_to_gene_expression_factor
     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
     missing_genes=[]
+    #From the reactions to omit get the enzymes to omit
+    proteins_to_omit=copy.deepcopy(proteins_to_omit)
+    for rid in reactions_to_omit:
+        if rid in model.reactions:
+           reaction=model.reactions.get_by_id(rid)
+           reaction_proteins=[x.id.replace("prot_","") for x in reaction.metabolites if x.id.startswith("prot_")]
+           proteins_to_omit+=reaction_proteins
+        else:
+           print("Reaction "+rid+" to omit not in model") 
+
     for reaction in model.reactions.query("usage_prot_"):
         enzyme=reaction.id.replace("usage_prot_","")
+        if enzyme in proteins_to_omit:
+            print("Skipping enzyme "+enzyme+" as it is in the omit list")
+            continue
         genes=list(reaction.genes)
         if len(genes)!=1:
             raise Exception("Wrong number of genes in "+reaction.id)
@@ -363,6 +436,8 @@ def find_lowest_feasible_enzyme_expression_factor(
 	min_factor=0,
 	initial_ratio_estimate=1,
 	tol=1e-6,
+    reactions_to_omit=[],
+    proteins_to_omit=[],
 	verbose=True
 ):
 	"""
@@ -381,7 +456,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 			test_model,
 			gene_expression_dict,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			enzyme_to_gene_expression_factor=mid
+			enzyme_to_gene_expression_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
 		)
 		solution = test_model.optimize()
 		if verbose:
@@ -401,7 +476,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 			test_model,
 			gene_expression_dict,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			enzyme_to_gene_expression_factor=best_factor
+			enzyme_to_gene_expression_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
 		)
 		best_solution = cobra.flux_analysis.pfba(test_model)
 	return best_factor, best_solution
