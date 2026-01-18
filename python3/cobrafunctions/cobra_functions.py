@@ -515,7 +515,7 @@ def met_explorer(model,met_name,met_compartment,exclude_transporters=True,solve=
 
 
 
-def load_constraints(model,constraint_filename,copy_model=False,remove_innactive=False,precision=None):
+def load_constraints(model,constraint_filename,copy_model=False,remove_inactive=False,precision=None):
     if(copy_model):
        model=model.copy()
     constraint_df=pd.read_csv(constraint_filename)
@@ -538,7 +538,7 @@ def load_constraints(model,constraint_filename,copy_model=False,remove_innactive
            #Only change if its different
            if reaction.objective_coefficient!=objective_coefficient:
               reaction.objective_coefficient=objective_coefficient
-    if remove_innactive:
+    if remove_inactive:
        model.remove_reactions(blocked_reactions) #it gives a warning but nothing we can do about it
        print(len(blocked_reactions),"reactions removed from model")           
     return(model)

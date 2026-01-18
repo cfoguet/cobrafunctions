@@ -113,7 +113,8 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
          fraction_of_optimum= 0,
          processes= fva_processes,
          solver_tolerance_feasibility= fva_solver_tolerance_feasibility,
-         solver_tolerance_optimality= fva_solver_tolerance_optimality)
+         solver_tolerance_optimality= fva_solver_tolerance_optimality,
+         verbose=verbose)
     else:
        print ("Reusing Net FluxFva")
     #Add reactions without net flux to the list to remove
