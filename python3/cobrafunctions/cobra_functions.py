@@ -190,7 +190,7 @@ def remove_blocked_reactions(model,remove=True,fva=None,reaction_id_remove=None,
           metabolites_to_remove.append(metabolite) 
   for metabolite in metabolites_to_remove:
         metabolite.remove_from_model()"""
-  model=cobra.manipulation.delete.prune_unused_metabolites(model)      
+  cobra.manipulation.delete.prune_unused_metabolites(model)      
   return original_fva, [x.id for x in reaction_to_remove]
 
 

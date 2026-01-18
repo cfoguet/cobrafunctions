@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 
 from .cobra_functions import round_sig, get_equation
+
 from cobra.core import Metabolite, Model, Reaction
 from cobra.util import solver as sutil
 
@@ -77,6 +78,82 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
             mapping_dict[base_reaction_id]["forward_reactions"].append(reaction.id)    
     
     return mapping_dict, reverse_reactions
+
+
+#Remove reactions without net flux
+def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapping_dict=None,protein_metabolite_prefix="prot",net_flux_fva=None,test_individual_reactions=True,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
+    from .netflux_variability import flux_variability_analysis_net_flux
+    print("Removing blocked reactions from EC model with min_flux="+str(min_flux))
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites before removing blocked reactions")
+    #Start by removing reactions that are already blocked
+    blocked_reactions=[x for x in model.reactions if x.bounds==(0,0)]
+    print(str(len(blocked_reactions))+" reactions are already blocked")
+    model.remove_reactions(blocked_reactions)
+    cobra.manipulation.delete.prune_unused_metabolites(model) 
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing reactions with 0,0 bounds")
+    if expanded_reaction_mapping_dict is None:
+           if verbose:
+              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+           expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
+                  model, 
+                  reverse_reaction_pattern="_REV", 
+                  isoenzyme_reaction_pattern="_EXP_\\d+",
+                  patterns_to_ommit=["^usage_prot_"],
+                  verbose=False)
+           if test_individual_reactions:
+              #You might still want to test individual reactions
+              if  verbose:
+                  print("Adding individual reactions to the list")
+              for reaction in  model.reactions:
+                  expanded_reaction_mapping_dict[reaction.id+"__individual"]={"forward_reactions":[reaction.id],"reverse_reactions": []}
+    if net_flux_fva==None:
+      net_flux_fva=flux_variability_analysis_net_flux( model=model,
+         expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,
+         flux_list= list(expanded_reaction_mapping_dict.keys()),
+         fraction_of_optimum= 0,
+         processes= fva_processes,
+         solver_tolerance_feasibility= fva_solver_tolerance_feasibility,
+         solver_tolerance_optimality= fva_solver_tolerance_optimality)
+    else:
+       print ("Reusing Net FluxFva")
+    #Add reactions without net flux to the list to remove
+    reactions_to_remove=[]        
+    for net_flux_id in net_flux_fva.index:
+        if abs(net_flux_fva.loc[net_flux_id, "maximum"])<min_flux and abs(net_flux_fva.loc[net_flux_id, "minimum"])<min_flux:
+           #Get the individual reactions in the net flux
+           individual_rids=expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]+expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]
+           reactions_to_remove+=individual_rids
+           if verbose:
+              print(net_flux_id+" "+str(net_flux_fva.loc[net_flux_id, "minimum"])+" "+str(net_flux_fva.loc[net_flux_id, "maximum"])+" "+str(individual_rids))  
+    #Make sure there are no duplicate elements 
+    reactions_to_remove=list(set(reactions_to_remove))
+    print(str(len(reactions_to_remove))+" reactions to remove")
+    reaction_objects_to_remove=[model.reactions.get_by_id(x) for x in reactions_to_remove]
+    model.remove_reactions(reaction_objects_to_remove)
+    #Some usage reactions that could technically be active might have been blocked when reactions without net flux were removed
+    orphan_proteins=[]
+    for metabolite in model.metabolites:
+      if len(metabolite.reactions)<2 and protein_metabolite_prefix in metabolite.id:
+         orphan_proteins.append(metabolite)
+    if len(orphan_proteins)>0:
+       print("Removing "+str(len(orphan_proteins))+" orphan enzymes")
+       model.remove_metabolites(orphan_proteins,destructive=True)
+
+    #Remove empty genes
+    genes_to_remove=[]
+    for gene in model.genes:
+      if len(gene.reactions)==0:
+        #print(gene)
+        genes_to_remove.append(gene)
+    if(len(genes_to_remove)>0):
+     cobra.manipulation.delete.remove_genes(model,genes_to_remove)            
+    #Remove orphan metabolites
+    cobra.manipulation.delete.prune_unused_metabolites(model) 
+
+
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing blocked reactions")      
+    return net_flux_fva, reactions_to_remove
+
 
 
 """Add reporter metabolites and reactions to measure net fluxes."""

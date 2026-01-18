@@ -132,11 +132,12 @@ def flux_variability_analysis_net_flux(
     solver_tolerance_feasibility: Optional[float] = None,
     solver_tolerance_optimality: Optional[float] = None,
     verbose: bool = True,
+    progress_interval: Optional[int] = None,  # Print Update every N fluxes
 ) -> pd.DataFrame:
     """Determine the minimum and maximum net flux value for each flux.
 
-    Note precision can be incrased with: model.solver.configuration.tolerances.feasibility = 1e-9
-    Setting processes to might also increase reproducibility
+    Note precision can be increased with: model.solver.configuration.tolerances.feasibility = 1e-9
+    Setting processes to 1 might also increase reproducibility
     This is similar to standard FVA but operates on net fluxes defined by
     forward and reverse reaction mappings, useful for models with split
     reversible reactions or when you want to analyze net flux across
@@ -146,19 +147,8 @@ def flux_variability_analysis_net_flux(
     ----------
     model : cobra.Model
         The model for which to run the analysis. It will *not* be modified.
-    expanded_reaction_mapping_dict : dict
+    expanded_reaction_mapping_dict : dict, optional
         A dictionary mapping flux IDs to forward and reverse reactions in the model.
-        Format:
-        {
-           "flux_id1": {
-               "forward_reactions": ["reaction_id1", "reaction_id2"],
-               "reverse_reactions": ["reaction_id3"]
-           },
-           "flux_id2": {
-               "forward_reactions": ["reaction_id4"],
-               "reverse_reactions": []
-           },
-        }
     flux_list : list of str, optional
         The flux IDs for which to obtain min/max net fluxes. If None will use
         all fluxes in expanded_reaction_mapping_dict (default None).
@@ -168,35 +158,23 @@ def flux_variability_analysis_net_flux(
     processes : int, optional
         The number of parallel processes to run (default None).
     solver_tolerance_feasibility : float, optional
-        If provided, temporarily sets the solver's feasibility tolerance. Default in cobra is 1e-6.
+        If provided, temporarily sets the solver's feasibility tolerance.
     solver_tolerance_optimality : float, optional
-        If provided, temporarily sets the solver's optimality tolerance. Default in cobra is 1e-7
+        If provided, temporarily sets the solver's optimality tolerance.
+    verbose : bool, optional
+        Print progress information (default True).
+    progress_interval : int, optional
+        Print progress every N fluxes. If None, prints every 10% (default None).
+
     Returns
     -------
     pandas.DataFrame
         A data frame with flux identifiers as the index and two columns:
         - maximum: indicating the highest possible net flux
         - minimum: indicating the lowest possible net flux
-
-    Examples
-    --------
-    >>> # For a standard model with split reversible reactions
-    >>> mapping = {
-    ...     "PGI_net": {
-    ...         "forward_reactions": ["PGI_forward"],
-    ...         "reverse_reactions": ["PGI_reverse"]
-    ...     },
-    ...     "PFK": {
-    ...         "forward_reactions": ["PFK"],
-    ...         "reverse_reactions": []
-    ...     }
-    ... }
-    >>> result = flux_variability_analysis_net_flux(
-    ...     model,
-    ...     expanded_reaction_mapping_dict=mapping,
-    ...     fraction_of_optimum=0.9
-    ... )
     """
+    import time
+    
     # Check that the model doesn't already contain reporter metabolites
     existing_reporter_mets = [met.id for met in model.metabolites if met.id.startswith("reporter_met_")]
     
@@ -210,7 +188,7 @@ def flux_variability_analysis_net_flux(
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
         if verbose:
-           print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+            print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model, 
             reverse_reaction_pattern="_REV", 
@@ -228,13 +206,23 @@ def flux_variability_analysis_net_flux(
             raise ValueError(
                 f"The following flux IDs are not in expanded_reaction_mapping_dict: {missing}"
             )
+    
     if verbose:
         print(f"Calculating FVA for {len(flux_list)} net fluxes...")
+    
     if processes is None:
         processes = configuration.processes
 
     num_fluxes = len(flux_list)
     processes = min(processes, num_fluxes)
+    
+    # Determine progress update interval
+    if progress_interval is None:
+        # Default: update every 10%
+        progress_interval = max(1, num_fluxes // 10)
+    
+    if verbose:
+        print(f"Progress updates every {progress_interval} fluxes")
 
     fva_result = pd.DataFrame(
         {
@@ -243,17 +231,23 @@ def flux_variability_analysis_net_flux(
         },
         index=flux_list,
     )
+    
     # Adjust solver tolerances if specified
+    old_tolerance = None
+    old_optimality_tolerance = None
+    
     if solver_tolerance_feasibility is not None:
         if verbose:
             print(f"Setting solver feasibility tolerance to {solver_tolerance_feasibility} for FVA")
         old_tolerance = model.solver.configuration.tolerances.feasibility
         model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
+    
     if solver_tolerance_optimality is not None:
         if verbose:
             print(f"Setting solver optimality tolerance to {solver_tolerance_optimality} for FVA")
         old_optimality_tolerance = model.solver.configuration.tolerances.optimality
-        model.solver.configuration.tolerances.optimality = solver_tolerance_optimality  
+        model.solver.configuration.tolerances.optimality = solver_tolerance_optimality
+    
     prob = model.problem
     with model:
         # Safety check before setting up FVA
@@ -284,8 +278,21 @@ def flux_variability_analysis_net_flux(
         model.objective = Zero
         
         for what in ("minimum", "maximum"):
+            if verbose:
+                print(f"\nCalculating {what} fluxes...")
+            
+            start_time = time.time()
+            completed = 0
+            last_update = 0
+            
             if processes > 1:
-                chunk_size = len(flux_list) // processes
+                # Better chunk size for load balancing
+                chunk_size = min(len(flux_list) // processes,1000)
+
+                
+                if verbose:
+                    print(f"  Using {processes} processes with chunk_size={chunk_size}")
+                
                 with ProcessPool(
                     processes,
                     initializer=_init_worker_net_flux,
@@ -295,14 +302,51 @@ def flux_variability_analysis_net_flux(
                         _fva_step_net_flux, flux_list, chunksize=chunk_size
                     ):
                         fva_result.at[flux_id, what] = value
+                        completed += 1
+                        
+                        # Print progress every progress_interval fluxes
+                        if verbose and (completed - last_update >= progress_interval or completed == num_fluxes):
+                            elapsed = time.time() - start_time
+                            rate = completed / elapsed if elapsed > 0 else 0
+                            percent = 100 * completed / num_fluxes
+                            eta = (num_fluxes - completed) / rate if rate > 0 else 0
+                            
+                            print(f"  {completed}/{num_fluxes} ({percent:.1f}%) | "
+                                  f"{rate:.1f} flux/s | "
+                                  f"Elapsed: {elapsed:.0f}s | "
+                                  f"ETA: {eta:.0f}s")
+                            last_update = completed
             else:
+                # Single process mode
                 _init_worker_net_flux(
                     model, what[:3], expanded_reaction_mapping_dict
                 )
+                
                 for flux_id, value in map(_fva_step_net_flux, flux_list):
                     fva_result.at[flux_id, what] = value
-    if solver_tolerance_feasibility is not None:
+                    completed += 1
+                    
+                    # Print progress every progress_interval fluxes
+                    if verbose and (completed - last_update >= progress_interval or completed == num_fluxes):
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        percent = 100 * completed / num_fluxes
+                        eta = (num_fluxes - completed) / rate if rate > 0 else 0
+                        
+                        print(f"  {completed}/{num_fluxes} ({percent:.1f}%) | "
+                              f"{rate:.1f} flux/s | "
+                              f"Elapsed: {elapsed:.0f}s | "
+                              f"ETA: {eta:.0f}s")
+                        last_update = completed
+            
+            if verbose:
+                elapsed = time.time() - start_time
+                print(f"  Completed in {elapsed:.1f}s ({num_fluxes/elapsed:.1f} flux/s)")
+    
+    # Restore solver tolerances
+    if old_tolerance is not None:
         model.solver.configuration.tolerances.feasibility = old_tolerance
-    if solver_tolerance_optimality is not None:
+    if old_optimality_tolerance is not None:
         model.solver.configuration.tolerances.optimality = old_optimality_tolerance
+    
     return fva_result[["minimum", "maximum"]]
