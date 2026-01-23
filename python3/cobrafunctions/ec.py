@@ -472,9 +472,9 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
    enzyme_usage_df=enzyme_usage_df.sort_values('ratio_enzyme_usage_to_expression', ascending=False)
    return(enzyme_usage_df, max_ratio,quantile_ratio_95)
 
-def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,enzyme_to_gene_expression_factor=1,reactions_to_omit=[],proteins_to_omit=[]):
+def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],verbose=True):
     #Set enzyme usage bounds based on gene expression
-    #Gene expression is converted to enzyme usage by multiplying by enzyme_to_gene_expression_factor
+    #Gene expression is converted to enzyme usage by multiplying by gene_expression_to_enzyme_factor
     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
     missing_genes=[]
     #From the reactions to omit get the enzymes to omit
@@ -485,24 +485,27 @@ def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzy
            reaction_proteins=[x.id.replace("prot_","") for x in reaction.metabolites if x.id.startswith("prot_")]
            proteins_to_omit+=reaction_proteins
         else:
-           print("Reaction "+rid+" to omit not in model") 
+           if verbose:
+              print("Reaction "+rid+" to omit not in model") 
 
     for reaction in model.reactions.query("usage_prot_"):
         enzyme=reaction.id.replace("usage_prot_","")
         if enzyme in proteins_to_omit:
-            print("Skipping enzyme "+enzyme+" as it is in the omit list")
+            if verbose:
+                print("Skipping enzyme "+enzyme+" as it is in the omit list")
             continue
         genes=list(reaction.genes)
         if len(genes)!=1:
             raise Exception("Wrong number of genes in "+reaction.id)
         gene=genes[0].id
         gene_expression=gene_expression_dict.get(gene,None)
-        if gene_expression is None or gene_expression<=0:
+        if gene_expression is None or gene_expression<0:
            missing_genes.append(gene)
-           print("No gene expression found for gene "+gene+" associated to enzyme "+enzyme+" so skipping")
+           if verbose:
+              print("No gene expression found for gene "+gene+" associated to enzyme "+enzyme+" so skipping")
            continue
         #Get the max enzyme usage flux possible
-        max_enzyme_usage=enzyme_to_gene_expression_factor*gene_expression
+        max_enzyme_usage=gene_expression_to_enzyme_factor*gene_expression
         scaled_max_enzyme_usage=max_enzyme_usage*enzyme_kcat_scaling_factor_dict.get(enzyme,1)
         reaction.lower_bound=-1*scaled_max_enzyme_usage #Reaction is structure like this prot_A0A0U1RQ18 <--  so flux is negative
     return missing_genes
@@ -519,7 +522,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 	verbose=True
 ):
 	"""
-	Iteratively find the lowest enzyme_to_gene_expression_factor that gives a feasible solution.
+	Iteratively find the lowest gene_expression_to_enzyme_factor that gives a feasible solution.
 	Returns the lowest feasible factor and the corresponding solution.
 	"""
 	low = min_factor
@@ -534,7 +537,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 			test_model,
 			gene_expression_dict,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			enzyme_to_gene_expression_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
+			gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
 		)
 		solution = test_model.optimize()
 		if verbose:
@@ -547,14 +550,14 @@ def find_lowest_feasible_enzyme_expression_factor(
 			low = mid
 
 	if best_factor is not None:
-		print(f"Lowest feasible enzyme_to_gene_expression_factor: {best_factor}")
+		print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
 		#Run pfba to get the flux distribution
 		test_model = model.copy()	
 		set_enzyme_usage_bounds_from_gene_expression(
 			test_model,
 			gene_expression_dict,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			enzyme_to_gene_expression_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
+			gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
 		)
 		best_solution = cobra.flux_analysis.pfba(test_model)
 	return best_factor, best_solution
