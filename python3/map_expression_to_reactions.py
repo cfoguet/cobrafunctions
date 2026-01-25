@@ -1,43 +1,44 @@
-import getopt
-import sys
+if __name__ == '__main__':
+ import getopt
+ import sys
+  
+ import cobra
+ import os
+ import copy
+ import math
+ from cobrafunctions.read_spreadsheets import read_spreadsheets
+ from cobrafunctions.write_spreadsheet import write_spreadsheet
+ from cobrafunctions.gim3e import get_gene_exp
+ from cobrafunctions.qMTA import read_gene_data,find_nearZeroVar
+ import pandas
  
-import cobra
-import os
-import copy
-import math
-from cobrafunctions.read_spreadsheets import read_spreadsheets
-from cobrafunctions.write_spreadsheet import write_spreadsheet
-from cobrafunctions.gim3e import get_gene_exp
-from cobrafunctions.qMTA import read_gene_data,find_nearZeroVar
-import pandas
-
-
-"""
-map_expression_to_reactions.py
-This script maps genetically imputed patient-specific expression patterns to organ-specific models using the gene reaction annotations in these models. Imputed values are expressed as Log2 fold changes relative to average gene expression in a given organ and then mapped to reactions in the organ-specific model considering the relative transcript abundance of isoenzymes and enzyme subunits (e.g. in a reaction catalysed by multiple isoenzymes genetic variation on the isoenzyme with the highest expression will have a stronger effect on putative reaction activity). The script must be run for each organ under study. 
-Usage: map_expression_to_reactions.py [INPUTS...] 
-
-INPUTS:
--i, --imputed_transcript_abundance : Path to the CSV or XLSX file with the Organ-specific transcript abundance patterns imputed from genotype data. Genes must be in rows and individuals/samples in columns. 
--m, --organ_specific_model : path to the organ-specific model in SBML format. Can also take the gim3e__constrained_model.sbml model as input. 
--r, --reference_transcript_abundance :  Path to the CSV or XLSX file defining the average organ gene expression in TPM or FPKM.
--o, --output_directory : Working and output directory. Will be created if it does not exist. 
--s, --sample_list : Optional, list of sample/individual IDs that should be analysed. If not provided all samples will be analysed. Each row should contain a sample/individuals ID.
--t, --organ_name :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name
--g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "NCBI.gene..formerly.Entrezgene..ID". If it is not present it will be assumed to be the first column in the file. 
-
-OUTPUTS:
-reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
-
-"""
-tissue_key_defined_flag=False
-sample_output=""
-sample_list_file=None
-gene_id_str="gene_id"
-remove_reactions_with_low_variance=True
-gz=False
-opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:kz",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name=","keep_reactions_with_low_variance","gz"])
-for opt, arg in opts:
+ 
+ """
+ map_expression_to_reactions.py
+ This script maps genetically imputed patient-specific expression patterns to organ-specific models using the gene reaction annotations in these models. Imputed values are expressed as Log2 fold changes relative to average gene expression in a given organ and then mapped to reactions in the organ-specific model considering the relative transcript abundance of isoenzymes and enzyme subunits (e.g. in a reaction catalysed by multiple isoenzymes genetic variation on the isoenzyme with the highest expression will have a stronger effect on putative reaction activity). The script must be run for each organ under study. 
+ Usage: map_expression_to_reactions.py [INPUTS...] 
+ 
+ INPUTS:
+ -i, --imputed_transcript_abundance : Path to the CSV or XLSX file with the Organ-specific transcript abundance patterns imputed from genotype data. Genes must be in rows and individuals/samples in columns. 
+ -m, --organ_specific_model : path to the organ-specific model in SBML format. Can also take the gim3e__constrained_model.sbml model as input. 
+ -r, --reference_transcript_abundance :  Path to the CSV or XLSX file defining the average organ gene expression in TPM or FPKM.
+ -o, --output_directory : Working and output directory. Will be created if it does not exist. 
+ -s, --sample_list : Optional, list of sample/individual IDs that should be analysed. If not provided all samples will be analysed. Each row should contain a sample/individuals ID.
+ -t, --organ_name :  Optional, Organ or tissue to be analysed. Has to match a column in the reference_transcript_abundance file. If not provided it will take organ name from the  organ_specific_model file name
+ -g, --gene_id_column_name* : Optional, defines the column name in imputed_transcript_abundance that defines the gene identifiers used in the model. If it is not provided, it will be set to "NCBI.gene..formerly.Entrezgene..ID". If it is not present it will be assumed to be the first column in the file. 
+ 
+ OUTPUTS:
+ reaction_expression: CSV file containing putative reaction activity fold changes for each individual. Used as input for run_qMTA.py.
+ 
+ """
+ tissue_key_defined_flag=False
+ sample_output=""
+ sample_list_file=None
+ gene_id_str="gene_id"
+ remove_reactions_with_low_variance=True
+ gz=False
+ opts, args = getopt.getopt(sys.argv[1:],"t:i:m:r:s:o:g:kz",["organ_name=","imputed_transcript_abundance=","organ_specific_model=","reference_transcript_abundance=","sample_list=","output_directory=","gene_id_column_name=","keep_reactions_with_low_variance","gz"])
+ for opt, arg in opts:
       #print opt,arg
       if opt in ("-i", "--imputed_transcript_abundance"):
           imputed_file= arg
@@ -64,32 +65,32 @@ for opt, arg in opts:
          remove_reactions_with_low_variance=False
       elif opt in ("-z", "--gz"):
          gz=True
-
-
-#Build dict with all data
-model_dict={tissue_key:{"model":cobra.io.read_sbml_model(sbml_file), "imputed_file":imputed_file}}
-conditions_of_interest=list(model_dict.keys())#["Adipose_Subcutaneous"] #Conditions that will be analyzed with GIMME
-
-
-###########Gene expression inpputs
-
-gpr_mode="full" #By default leave it to full to use full GPR rules. Alternatively, you can set it to the "average" to use to average gene expression for the genes associated to each reaction 
-or_mode="sum" #When there are multiple isoenzymes indicated with OR the gene expression of each isoform will be added. ONLY USE SUM IF GENE EXPRESSION DATA IS NOT IN LOG SCALE in gene_expression_file
-absent_gene_expression=5 #Percentile of expression of metabolic genes assigned to genes without experimental measurments (Note that in RNA-SEQ most genes should have experimental measures) 
-replace_and_with_or=True #In GPR rules and will be replaced by or
-##Gene prefix and sufix
-#Example: If in the SBML model genes are defined as G_10101.1 were 10101 is gene ID, prefix="G_" , sufix="."
-gene_prefix="" 
-gene_sufix=""
-
-
-gene_expression=read_spreadsheets(gene_expression_file)
-sheet_name=list(gene_expression.keys())[0]
-header=gene_expression[sheet_name][0]
-
-#Get tissue position
-column_dict={}
-for n,col in enumerate(header):
+ 
+ 
+ #Build dict with all data
+ model_dict={tissue_key:{"model":cobra.io.read_sbml_model(sbml_file), "imputed_file":imputed_file}}
+ conditions_of_interest=list(model_dict.keys())#["Adipose_Subcutaneous"] #Conditions that will be analyzed with GIMME
+ 
+ 
+ ###########Gene expression inpputs
+ 
+ gpr_mode="full" #By default leave it to full to use full GPR rules. Alternatively, you can set it to the "average" to use to average gene expression for the genes associated to each reaction 
+ or_mode="sum" #When there are multiple isoenzymes indicated with OR the gene expression of each isoform will be added. ONLY USE SUM IF GENE EXPRESSION DATA IS NOT IN LOG SCALE in gene_expression_file
+ absent_gene_expression=5 #Percentile of expression of metabolic genes assigned to genes without experimental measurments (Note that in RNA-SEQ most genes should have experimental measures) 
+ replace_and_with_or=True #In GPR rules and will be replaced by or
+ ##Gene prefix and sufix
+ #Example: If in the SBML model genes are defined as G_10101.1 were 10101 is gene ID, prefix="G_" , sufix="."
+ gene_prefix="" 
+ gene_sufix=""
+ 
+ 
+ gene_expression=read_spreadsheets(gene_expression_file)
+ sheet_name=list(gene_expression.keys())[0]
+ header=gene_expression[sheet_name][0]
+ 
+ #Get tissue position
+ column_dict={}
+ for n,col in enumerate(header):
     col_feeding=col+"_feeding"
     col_fasting=col+"_fasting"
     #print col_feeding,col_fasting
@@ -101,21 +102,21 @@ for n,col in enumerate(header):
        column_dict[col_feeding]=n 
     if col_fasting in conditions_of_interest:
        column_dict[col_fasting]=n 
-
-del(gene_expression)
-
-#differential_gene_file="/rds/user/cf545/hpc-work/results/INTERVAL/imputed_tissue_expression/predicted_expression/Muscle_Skeletal/csv/aggregated/annotated_prediction_muscle.csv"
-
-
-
-
-
-#1 get base and reaction gene expression
-#tissue_key="Muscle_Skeletal"
-
-for tissue_key in conditions_of_interest:
- model=model_dict[tissue_key]["model"]
- if replace_and_with_or:
+ 
+ del(gene_expression)
+ 
+ #differential_gene_file="/rds/user/cf545/hpc-work/results/INTERVAL/imputed_tissue_expression/predicted_expression/Muscle_Skeletal/csv/aggregated/annotated_prediction_muscle.csv"
+ 
+ 
+ 
+ 
+ 
+ #1 get base and reaction gene expression
+ #tissue_key="Muscle_Skeletal"
+ 
+ for tissue_key in conditions_of_interest:
+  model=model_dict[tissue_key]["model"]
+  if replace_and_with_or:
      """     for reaction in model.reactions:
          reaction.gene_reaction_rule=reaction.gene_reaction_rule.replace("and","or")
      """

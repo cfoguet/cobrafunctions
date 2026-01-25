@@ -12,14 +12,14 @@ from .write_spreadsheet import write_spreadsheet
 from .read_spreadsheets import read_spreadsheets
 import math
 from numpy import abs
-
+"""
 try:
   cobra_config = cobra.Configuration()
   cobra_config.solver = "glpk"
   #print("glpk set as default solver")   
 except:
   print("could not set glpk to default solver")   
-
+"""
 
 def round_sig(x, sig=2):
   if x==0:
@@ -140,7 +140,7 @@ def convert_to_irreversible_with_indicators(cobra_model,reaction_id_list,metabol
         if reaction.lower_bound < 0:
             reverse_reaction = Reaction(reaction.id + "_reverse")
             #reverse_reaction = copy.deepcopy(reaction)
-            print("adding reverse reaction")
+            #print("adding reverse reaction")
             reverse_reaction.gene_reaction_rule=reaction.gene_reaction_rule
             reverse_reaction.id = reaction.id + "_reverse"
             reverse_reaction.lower_bound = max(0,-1*reaction.upper_bound)
@@ -272,6 +272,10 @@ def integrate_omics_gim3e_and_remove(metabolic_model,gene_expression_file,fracti
    boundaries_precision: float 
           If add_as_constraints is set to True this determines the precision of the constraints that will be added
    """
+   from .netflux_variability import flux_variability_analysis_net_flux
+   from .ec import get_ec_expanded_reaction_mapping
+
+   
    if percentile in (True,"true","True",1,"1","yes"):
       percentile=True
    else:
@@ -337,7 +341,14 @@ def integrate_omics_gim3e_and_remove(metabolic_model,gene_expression_file,fracti
          gim3e_fraction_optimum=None
          print(gene_expression_model.optimize(),"max objective" , abs_max_objective)
          #print "max objective" , abs_max_objective
-     fva,irrevfva=flux_minimization_fva(gene_expression_model,solver=None,reaction_list=reaction_list,lp_tolerance_feasibility=lp_tolerance_feasibility,objective="gim3e_objective",fraction_optimum=gim3e_fraction_optimum,reaction_ids_to_omit=reaction_ids_to_omit)
+     
+     mapping_dict, reverse_reactions=get_ec_expanded_reaction_mapping(gene_expression_model,reverse_reaction_pattern="_reverse",isoenzyme_reaction_pattern="IGNORE_THIS",patterns_to_ommit=["^usage_prot_"],verbose=False)
+     reaction_list=[x.id for x in metabolic_model.reactions]
+     fva_pandas=flux_variability_analysis_net_flux(model=gene_expression_model,expanded_reaction_mapping_dict=mapping_dict,flux_list=reaction_list,fraction_of_optimum=1/gim3e_fraction_optimum,verbose=True)
+     fva={}
+     for reaction in fva_pandas.index:
+           fva[reaction]={"maximum":fva_pandas.loc[reaction]["maximum"],"minimum":fva_pandas.loc[reaction]["minimum"]}
+     #fva,irrevfva=flux_minimization_fva(gene_expression_model,solver=None,reaction_list=reaction_list,lp_tolerance_feasibility=lp_tolerance_feasibility,objective="gim3e_objective",fraction_optimum=gim3e_fraction_optimum,reaction_ids_to_omit=reaction_ids_to_omit)
      if add_as_constraints==True:
        for reaction_id in fva: 
          if reaction_id in metabolic_model.reactions:
@@ -378,7 +389,7 @@ def create_gim3e_model(cobra_model,file_name="gene_expression_data.xlsx",metabol
        for reaction in cobra_model.reactions:
          if reaction.id not in reaction_expression_dict:
             reaction_expression_dict[reaction.id]=absent_reaction_expression_value
-            print(reaction_expression_dict)
+            #print(reaction_expression_dict)
     #return
     if percentile==True: #If percentile is set to True, low_expression_threshold is assumed to be a percintile
        """if not all_gene_exp_4_percentile:
@@ -411,7 +422,7 @@ def create_gim3e_model(cobra_model,file_name="gene_expression_data.xlsx",metabol
               penalty_dict[reaction_id]=0
            gene_expression_penalty=round(-gene_expression_value+low_expression_threshold,4)
            penalty_dict[reaction_id]+=gene_expression_penalty
-    print(penalty_dict)
+    #print(penalty_dict)
     if correct_for_complexes: #correct for reactions like '3.0 6pgc_c + 3.0 nadp_c --> 3.0 co2_c + 3.0 nadph_c + 3.0 ru5p__D_c'
        for reaction in cobra_model.reactions:
            min_coef=min([abs(reaction.metabolites[x]) for x in reaction.metabolites])     
@@ -490,7 +501,7 @@ def flux_minimization_fva(model,solver=None,reaction_list=[],lp_tolerance_feasib
       model_reaction_n_dict[reaction.id]=n
   normal_fva_list=[]
   counter=0
-  print("starting analysis")
+  print("starting FVA analysis")
   for reaction_id in reaction2test:
       reaction=irreversible_model.reactions.get_by_id(reaction_id)
       if "reflection" in reaction.notes :
@@ -535,6 +546,7 @@ def flux_minimization_fva(model,solver=None,reaction_list=[],lp_tolerance_feasib
         normal_fva_list.append(reaction_id)
   if normal_fva_list!=[]:
      print(irreversible_model.optimize())
+     print("Running Normal FVA")
      normal_fva=flux_variability_analysis(irreversible_model,reaction_list=normal_fva_list,fraction_of_optimum=0.0)
      """try:
        print("running FVA")
@@ -642,7 +654,7 @@ def get_expression(model,file_name="gene_expression_data.xlsx",gene_method="aver
         gene_expression_dict[geneid]=value#round(value,4)
         if not(omit_0 and value==0):
            value_list.append(value)      
-    print(gene_expression_dict)      
+    #print(gene_expression_dict)      
     return value_list, gene_expression_dict
 
 
@@ -663,7 +675,7 @@ def get_average_gene_expression(model,file_name,gene_method="average",gene_prefi
 
 
 
-def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=True,or_mode="max",expression_dict={},reactions_to_analyze=None,round_reaction_expression=4):
+def get_gene_exp(model,absent_gene_expression=50,percentile=True,file_name="gene_expression_data.xlsx",gene_method="average",gene_prefix="",gene_sufix="",omit_reflections=True,omit_0=False,gene_value_col=1,verbose=False,or_mode="max",expression_dict={},reactions_to_analyze=None,round_reaction_expression=4):
     """
     Assigns each reaction a expression value based on the gene_expression file and the GPR rules
     """
