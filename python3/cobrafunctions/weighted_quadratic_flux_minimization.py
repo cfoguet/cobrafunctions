@@ -1,10 +1,11 @@
-import time
-import cobra
 import pandas as pd
 from cobra.util import solver as sutil
 from optlang.symbolics import Zero as optlang_Zero, add #, Pow
 
-#TODO Update qMTA to use this function
+import logging
+logger = logging.getLogger(__name__)
+
+#TODO Implement a direct cplex interface compatible with this as it might be faster
 
 def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},expanded_reaction_mapping_dict={},copy_model=True,verbose=False,):
     r"""
@@ -58,14 +59,17 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
     )
     to_add = [v, c]
     model.objective = prob.Objective(optlang_Zero, direction="min", sloppy=True)
-    obj_vars = []
+    #obj_vars = []
+    optimized_fluxes_list=[]
+    quad_terms = []
+    lin_terms = []
     for flux_id in target_fluxes:
         target_flux_value = target_fluxes[flux_id]
         weight=target_fluxes_weight[flux_id]/scaling_factor
         
         forward_reactions=expanded_reaction_mapping_dict[flux_id]["forward_reactions"]
         reverse_reactions=expanded_reaction_mapping_dict[flux_id]["reverse_reactions"]
-
+        
         #Build the net flux expression
         #As a default cobra splits every reactions into forward and reverse variables defined by r.flux_expression and r.forward_variable and r.reverse_variable and r.reverse_variable
         #We will make our own net flux expression to handle the case of forward/reverse reactions
@@ -91,6 +95,8 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
            if(verbose):
               print("Skipping reaction "+flux_id+" as no flux is allowed in either direction")
            continue #Skip reactions with no flux allowed
+        else:
+          optimized_fluxes_list.append(flux_id)  #Keep track to the reactions that are actually optimized
         #Define net flux variable and constraint
         net_flux = prob.Variable("net_flux_" + flux_id)
         net_flux_const = prob.Constraint(
@@ -103,17 +109,346 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
         #Define quadratic expression
         # weight * (net_flux - target_flux_value)^2= weight * net_flux**2 - 2*weight*target_flux_value*net_flux + weight*target_flux_value**2
         #The last term is constant and can be ignored in the optimization        
-        obj_vars.append(weight * net_flux**2 - 2*weight*target_flux_value*net_flux)
+        #obj_vars.append(weight * net_flux**2 - 2*weight*target_flux_value*net_flux)
+        quad_terms.append(weight * net_flux**2)
+        lin_terms.append(-2 * weight * target_flux_value * net_flux)
         if(verbose):
            print("######################## "+flux_id)
            print("Adding flux difference minimization for reaction: "+flux_id+" with target flux: "+str(target_flux_value)+" and weight: "+str(weight) )
            print("Net flux expression: "+str(net_flux_expression) )
            print("Objective term: "+str(weight * net_flux**2 - 2*weight*target_flux_value*net_flux) )
     model.add_cons_vars(to_add)
-    model.objective = prob.Objective(add(obj_vars), direction="min", sloppy=True)
+    #model.objective = prob.Objective(add(obj_vars), direction="min", sloppy=True)
+    model.objective = prob.Objective( add(quad_terms) + add(lin_terms), direction="min", sloppy=True)
     #print(model.objective.expression)      
-    return model 
+    return model,optimized_fluxes_list 
 
+
+def update_quadratic_objective_coefficients(
+    model,
+    target_fluxes,
+    target_fluxes_weight,
+    verbose=False
+):
+    if isinstance(target_fluxes, pd.Series):
+        target_fluxes = target_fluxes.to_dict()
+    if isinstance(target_fluxes_weight, pd.Series):
+        target_fluxes_weight = target_fluxes_weight.to_dict()
+    scaling_factor = max(abs(target_fluxes_weight[x]) for x in target_fluxes_weight)
+    prob = model.problem
+    quad_terms = []
+    lin_terms = []
+    for flux_id, target in target_fluxes.items():
+        weight = target_fluxes_weight[flux_id] / scaling_factor
+        v = model.solver.variables["net_flux_" + flux_id]
+        quad_terms.append(weight * v * v)
+        lin_terms.append(-2 * weight * target * v)
+        if verbose:
+            print(f"Updated flux {flux_id}: target={target:.4g}, weight={weight:.4g}")
+    model.objective = prob.Objective(
+        add(quad_terms) + add(lin_terms),
+        direction="min",
+        sloppy=True,
+    )
+    if verbose:
+        print(f"Objective rebuilt for {len(target_fluxes)} fluxes")
+    return model
+    
+
+def qMTA_get_optimization_target_fluxes_and_weights(
+    reference_fluxes,
+    model=None,
+    target_net_flux_fold_change=None,
+    target_measured_flux=None,
+    fold_change_weight=None,
+    target_measured_flux_weight=None,
+    fluxes_to_omit=None,
+    target_fold_change_base_weight=0.5,
+    target_measured_flux_base_weight=0.5,
+    unchanged_reaction_base_weight=0.5,
+    fold_change_is_Log2=True,
+    reference_fluxes_are_net_fluxes=False,
+    max_Log2FC_change=99999999, #max_fold_change
+    scale_target_fold_change_weight_by_target_flux_difference=True, #normalize_by_scale_genes
+    scale_measured_target_flux_weight_by_target_flux_difference=False, #normalize_by_scale_mets
+    scale_unchanged_reactions_by_reference_flux=True, #normalize_by_scale_unchanged_reactions
+    min_factor_for_scaling=1e-6, #min_flux4weight
+    min_flux_to_apply_fold_change=1e-6, #min_flux_fold_change
+    precision=None,
+    expanded_reaction_mapping_dict=None,
+    verbose=True
+    ):
+    """
+    Get target net fluxes and weights for qMTA optimization.
+    
+    Parameters
+    ----------
+    reference_fluxes : dict or pd.Series
+        Reference flux values
+    model : cobra.Model, optional
+        The metabolic model. Only required if expanded_reaction_mapping_dict or net fluxes are not provided. 
+    target_net_flux_fold_change : dict or pd.Series, optional
+        Fold changes to apply to reference fluxes
+    target_measured_flux : dict or pd.Series, optional
+        Direct target flux measurements
+    fold_change_weight : dict or pd.Series, optional
+        Weights for fold change targets
+    target_measured_flux_weight : dict or pd.Series, optional
+        Weights for measured flux targets
+    fluxes_to_omit : list, optional
+        Flux IDs to exclude from optimization
+    target_fold_change_base_weight : float
+        Base weight for fold change targets (default 0.5)
+    target_measured_flux_base_weight : float
+        Base weight for measured flux targets (default 0.5)
+    unchanged_reaction_base_weight : float
+        Base weight for unchanged reactions (default 0.5)
+    fold_change_is_Log2 : bool
+        Whether fold changes are in log2 scale (default True)
+    reference_fluxes_are_net_fluxes : bool
+        Whether reference fluxes are already net fluxes (default False)
+    max_Log2FC_change : float
+        Maximum allowed log2 fold change (default 99999999)
+    scale_target_fold_change_weight_by_target_flux_difference : bool
+        Scale fold change weights by flux difference (default True)
+    scale_measured_target_flux_weight_by_target_flux_difference : bool
+        Scale measured flux weights by flux difference (default False)
+    scale_unchanged_reactions_by_reference_flux : bool
+        Scale unchanged reaction weights by reference flux (default True)
+    min_factor_for_scaling : float
+        Minimum factor for weight scaling (default 1e-6)
+    min_flux_to_apply_fold_change : float
+        Minimum reference flux to apply fold change (default 1e-6)
+    precision : int, optional
+        Precision for rounding weights (applies to weights only, not target fluxes)
+    expanded_reaction_mapping_dict : dict, optional
+        Mapping of net fluxes to reactions
+    verbose : bool
+        Print detailed progress (default True)
+        
+    Returns
+    -------
+    tuple of (dict, dict)
+        optimization_target_fluxes : Target flux values
+        optimization_target_fluxes_weights : Weights for each target flux
+    """
+    # Handle mutable default arguments
+    if target_net_flux_fold_change is None:
+        target_net_flux_fold_change = {}
+    if target_measured_flux is None:
+        target_measured_flux = {}
+    if fold_change_weight is None:
+        fold_change_weight = {}
+    if target_measured_flux_weight is None:
+        target_measured_flux_weight = {}
+    if fluxes_to_omit is None:
+        fluxes_to_omit = []
+    if precision is not None:
+      from .cobra_functions import round_sig
+    # Convert inputs to dicts if they are not already
+    if isinstance(reference_fluxes, pd.Series):
+        reference_fluxes = reference_fluxes.to_dict()
+    
+    if isinstance(target_net_flux_fold_change, pd.Series):
+        target_net_flux_fold_change = target_net_flux_fold_change.to_dict()
+    
+    if isinstance(fold_change_weight, pd.Series):
+        fold_change_weight = fold_change_weight.to_dict()
+    
+    if isinstance(target_measured_flux, pd.Series):
+        target_measured_flux = target_measured_flux.to_dict()
+    
+    if isinstance(target_measured_flux_weight, pd.Series):
+        target_measured_flux_weight = target_measured_flux_weight.to_dict()
+    
+    #Raise exception if reference fluxes is empty
+    if len(reference_fluxes) == 0:
+        raise Exception("Error: reference_fluxes is empty")
+    # Auto-generate mapping if not provided
+    if expanded_reaction_mapping_dict is None:
+        if verbose:
+            print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+        from .ec import get_ec_expanded_reaction_mapping
+        expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
+            model, 
+            reverse_reaction_pattern="_REV", 
+            isoenzyme_reaction_pattern="_EXP_\\d+",
+            patterns_to_ommit=["^usage_prot_"],
+            verbose=False
+        )
+    
+    # Convert reference fluxes to net fluxes if needed
+    if reference_fluxes_are_net_fluxes == False:
+        from .ec import get_net_fluxes_from_ec_model
+        
+        print("Converting reference fluxes to net fluxes")
+        net_fluxes = get_net_fluxes_from_ec_model(
+            model,
+            fluxes=reference_fluxes,
+            output_flux_breakdown=False,
+            ec_expanded_reaction_mapping_dict=expanded_reaction_mapping_dict
+        )  
+        reference_fluxes = net_fluxes['net_flux'].to_dict()
+    
+    # Convert log2 fold changes to linear fold changes
+    if fold_change_is_Log2:
+        target_net_flux_fold_change = {
+            rid: pow(2, fc) for rid, fc in target_net_flux_fold_change.items()
+        }
+    
+    # Get Max and Min fold changes thresholds
+    max_fc = pow(2, max_Log2FC_change)
+    min_fc = pow(2, -max_Log2FC_change)
+    
+    # Get fold change fluxes
+    fold_change_fluxes = set(target_net_flux_fold_change.keys()) - set(fluxes_to_omit)
+    
+    # Get target net fluxes
+    measured_target_fluxes = set(target_measured_flux.keys()) - set(fluxes_to_omit)
+    
+    # Raise an exception if there are overlapping reactions
+    overlapping_reactions = fold_change_fluxes.intersection(measured_target_fluxes)
+    if len(overlapping_reactions) > 0:
+        raise Exception(
+            "Error: The following reactions are present in both fold change and measured target fluxes: {}".format(
+                ", ".join(overlapping_reactions)
+            )
+        )
+    
+    if len(fold_change_fluxes) == 0 and len(measured_target_fluxes) == 0:
+        logger.warning("No fold change or measured target fluxes to process")
+    
+    if verbose:
+        if len(measured_target_fluxes) > 0:
+            print("Number of measured target fluxes to process: {}".format(len(measured_target_fluxes)))
+        if len(fold_change_fluxes) > 0:
+            print("Number of fold change fluxes to process: {}".format(len(fold_change_fluxes)))
+    
+    optimization_target_fluxes = {}
+    optimization_target_fluxes_weights = {}
+    fluxes_excluded_from_fold_change = set()
+    counter_fold_change = 0
+    counter_measured = 0
+    counter_unchanged = 0
+    
+    # Build target fluxes and weights for fold change reactions
+    for net_flux_id in fold_change_fluxes:
+        vref = reference_fluxes.get(net_flux_id)
+        if vref is None:
+            if verbose:
+                logger.warning("Reaction {} not found in reference fluxes, skipping".format(net_flux_id))
+            continue
+        
+        if abs(vref) < min_flux_to_apply_fold_change:
+            # Add them to excluded fluxes
+            fluxes_excluded_from_fold_change.add(net_flux_id)
+            if verbose:
+                print("Reaction {} with reference flux {} below min_flux_to_apply_fold_change {}. Adding it to excluded from fold change reactions.".format(
+                    net_flux_id, round_sig(vref, 4), min_flux_to_apply_fold_change
+                ))
+            continue
+        
+        fold_change = target_net_flux_fold_change[net_flux_id]
+        fold_change = min(max_fc, max(min_fc, fold_change))
+        target_flux = vref * fold_change
+        optimization_target_fluxes[net_flux_id] = target_flux
+        
+        # Get weight
+        weight = target_fold_change_base_weight * fold_change_weight.get(net_flux_id, 1)
+        if scale_target_fold_change_weight_by_target_flux_difference:
+            flux_diff_squared = max(pow(vref - target_flux, 2), min_factor_for_scaling)
+            weight /= flux_diff_squared
+        
+        if precision is not None:
+            weight = round_sig(weight, precision)
+        
+        optimization_target_fluxes_weights[net_flux_id] = weight
+        counter_fold_change += 1
+        
+        if verbose:
+            # Print vref, fold change, target flux, weight
+            print("rid: {}, vref: {}, fold change: {}, target flux: {}, weight: {}".format(
+                net_flux_id, round_sig(vref, 4), round_sig(fold_change, 4), 
+                round_sig(target_flux, 4), weight
+            ))
+    
+    # Build target fluxes and weights for measured target flux reactions
+    for net_flux_id in measured_target_fluxes:
+        vref = reference_fluxes.get(net_flux_id)
+        if vref is None:
+            if verbose:
+                logger.warning("Reaction {} not found in reference fluxes, skipping".format(net_flux_id))
+            continue
+        
+        # We will not filter by min_flux_to_apply_fold_change here, as these are measured fluxes         
+        target_flux = target_measured_flux[net_flux_id]
+        optimization_target_fluxes[net_flux_id] = target_flux
+        
+        # Get weight
+        weight = target_measured_flux_base_weight * target_measured_flux_weight.get(net_flux_id, 1)
+        if scale_measured_target_flux_weight_by_target_flux_difference:
+            flux_diff_squared = max(pow(vref - target_flux, 2), min_factor_for_scaling)
+            weight /= flux_diff_squared
+        
+        if precision is not None:
+            weight = round_sig(weight, precision)
+        
+        optimization_target_fluxes_weights[net_flux_id] = weight
+        counter_measured += 1
+        
+        if verbose:
+            # Print vref, target flux, weight
+            print("Measured reaction: rid: {}, vref: {}, target flux: {}, weight: {}".format(
+                net_flux_id, round_sig(vref, 4), round_sig(target_flux, 4), weight
+            ))
+    
+    # Get unchanged reactions
+    unchanged_fluxes = (
+        set(reference_fluxes.keys()) - 
+        fold_change_fluxes - 
+        measured_target_fluxes - 
+        fluxes_excluded_from_fold_change - 
+        set(fluxes_to_omit)
+    )
+    
+    if verbose:
+        print("Number of unchanged fluxes to process: {}".format(len(unchanged_fluxes)))
+    # Build target fluxes and weights for unchanged reactions
+    for net_flux_id in unchanged_fluxes:
+        vref = reference_fluxes.get(net_flux_id)
+        if vref is None:
+            if verbose:
+                logger.warning("Reaction {} not found in reference fluxes, skipping".format(net_flux_id))
+            continue
+        
+        target_flux = vref
+        optimization_target_fluxes[net_flux_id] = target_flux
+        
+        # Get weight
+        weight = unchanged_reaction_base_weight
+        if scale_unchanged_reactions_by_reference_flux:
+            weight /= max(abs(vref), min_factor_for_scaling) 
+        
+        if precision is not None:
+            weight = round_sig(weight, precision)
+        
+        optimization_target_fluxes_weights[net_flux_id] = weight
+        counter_unchanged += 1
+        
+        if verbose:
+            print("Unchanged reaction: rid: {}, vref: {}, weight: {}".format(
+                net_flux_id, round_sig(vref, 4), weight
+            ))
+    
+    if verbose:
+        # Print how many passed filters
+        print("Total fold change reactions after processing: {}".format(counter_fold_change))
+        print("Total measured target flux reactions after processing: {}".format(counter_measured))
+        print("Total unchanged reactions after processing: {}".format(counter_unchanged))
+    
+    return optimization_target_fluxes, optimization_target_fluxes_weights
+
+    
 """
 def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},copy_model=True,):
     #CF added
