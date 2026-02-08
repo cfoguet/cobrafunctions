@@ -28,6 +28,12 @@ from cobra.core.gene import parse_gpr, eval_gpr
 import cobra.util.solver as sutil
 from pprint import pprint
 
+try:
+   from cplex import Cplex
+except:
+   pass 
+
+
 def round_sig(x, sig=2):
   if x==0:
     value=0
@@ -619,3 +625,230 @@ def get_exchange_reaction_from_metabolite_name(model,metabolite_name,compartment
            exchange_reaction.append(reaction)
     if len(exchange_reaction)!=1: raise Exception("Cannot Find Single Exchange Reactions for "+metabolite_name)
     return(exchange_reaction[0])
+
+#Copied from qmta.py
+def relax_constraints(model,factor,max_flux):
+    for reaction in model.reactions:
+        reaction.lower_bound=round_sig(max(min(0,model.reactions.get_by_id(reaction.id).lower_bound*factor),-max_flux),2)
+        reaction.upper_bound=round_sig(min(max(0,model.reactions.get_by_id(reaction.id).upper_bound*factor),max_flux),2)
+        #Ensure all reactions can potentially carry a minimum a flux
+        if reaction.lower_bound<0:
+           reaction.lower_bound=min(reaction.lower_bound,-1e-5*factor)
+        if reaction.upper_bound>0:
+           reaction.upper_bound=max(reaction.upper_bound,1e-5*factor) 
+
+
+########Function to updade multiple bounds as effciently as possible
+
+
+def update_reaction_bounds(
+    model,
+    lower_bounds=None,
+    upper_bounds=None,
+    copy_model=False,
+    use_cplex_direct=False, #Note that when using this option True the bounds appearing in reaction.bounds will not be updated use caution when using this option
+    verbose=False
+):
+    """
+    Update reaction bounds for models     
+    Can use either optlang (solver-agnostic) or direct CPLEX interface (much faster).
+    For reversible reactions split into forward and reverse variables at the solver level:
+    - net_flux = forward - reverse
+    - Setting bounds requires updating both forward and reverse upper bounds. This is done automatically by cobr
+    
+    Parameters
+    ----------
+    model : cobra.Model
+        The metabolic model
+    lower_bounds : dict or pd.Series, optional
+        Dictionary mapping reaction IDs to new lower bounds
+    upper_bounds : dict or pd.Series, optional
+        Dictionary mapping reaction IDs to new upper bounds
+    copy_model: bool
+        Create and return a copy of the model
+    use_cplex_direct : bool
+        If True, use direct CPLEX interface (faster for large batches).
+        If False, use optlang (solver-agnostic but slower).
+        Default is False.
+    verbose : bool
+        Print progress
+        
+    Returns
+    -------
+    cobra.Model
+        Model with updated bounds
+        
+    Examples
+    --------
+    # Update using optlang (works with any solver)
+    update_reaction_bounds(model, 
+                          upper_bounds={'PGI': 100, 'PFK': 50},
+                          use_cplex_direct=False)
+    
+    # Update using CPLEX direct (much faster, requires CPLEX solver)
+    model.solver = 'cplex'
+    update_reaction_bounds(model,
+                          lower_bounds={'PGI': -100},
+                          upper_bounds={'PGI': 100, 'PFK': 50},
+                          use_cplex_direct=True)
+    """
+    # Convert Series to dict if needed
+    if isinstance(lower_bounds, pd.Series):
+        lower_bounds = lower_bounds.to_dict()
+    if isinstance(upper_bounds, pd.Series):
+        upper_bounds = upper_bounds.to_dict()
+    
+    if lower_bounds is None:
+        lower_bounds = {}
+    if upper_bounds is None:
+        upper_bounds = {}
+    
+    # Verify we have something to do
+    if len(lower_bounds) == 0 and len(upper_bounds) == 0:
+        if verbose:
+            print("No bounds to update")
+        return model
+    if copy_model:
+       model=model.copy() 
+    # Route to appropriate method
+    if use_cplex_direct:
+        return _update_reaction_bounds_cplex(model, lower_bounds, upper_bounds, verbose)
+    else:
+        return _update_reaction_bounds_optlang(model, lower_bounds, upper_bounds, verbose)
+
+
+def _update_reaction_bounds_optlang(model, lower_bounds, upper_bounds, verbose):
+    """
+    Update reaction bounds using optlang (solver-agnostic).
+    Handles forward/reverse variable splitting automatically.
+    """
+    # Get all reactions that need updating
+    all_rxn_ids = set(lower_bounds.keys()) | set(upper_bounds.keys())
+    
+    updated_count = 0
+    skipped_count = 0
+    
+    for rxn_id in all_rxn_ids:
+        try:
+            rxn = model.reactions.get_by_id(rxn_id)
+            
+            # Get new bounds (use current if not specified)
+            new_lb = lower_bounds.get(rxn_id, rxn.lower_bound)
+            new_ub = upper_bounds.get(rxn_id, rxn.upper_bound)
+            
+            # Update bounds using cobra's built-in method
+            # This automatically handles forward/reverse variable updates
+            rxn.bounds = (new_lb, new_ub)
+            
+            updated_count += 1
+            
+            if verbose:
+                print(f"  {rxn_id}: [{new_lb}, {new_ub}]")        
+        except KeyError:
+            print(f"Warning: Reaction {rxn_id} not found, skipping")
+            skipped_count += 1
+    
+    print(f"Updated bounds for {updated_count} reactions using default cobrapy bindings")
+    if skipped_count > 0:
+       print(f"Skipped {skipped_count} reactions (not found in model)")
+    
+    return model
+
+
+def _update_reaction_bounds_cplex(model, lower_bounds, upper_bounds, verbose):
+    """
+    Update reaction bounds using direct CPLEX interface (much faster).
+    Handles forward/reverse variable splitting.
+    """
+    # Verify CPLEX solver
+    current_solver = sutil.interface_to_str(model.problem)
+    if 'cplex' not in current_solver.lower():
+        raise ValueError(
+            f"Model is using {current_solver} solver, but use_cplex_direct=True requires CPLEX.\n"
+            f"Either:\n"
+            f"  1. Set model.solver = 'cplex' before calling this function, or\n"
+            f"  2. Use use_cplex_direct=False to use optlang (works with any solver)"
+        )
+    
+    # Access CPLEX problem directly
+    lp = model.solver.problem
+    
+    #if not isinstance(lp, Cplex):
+    #    raise RuntimeError(f"Expected CPLEX problem but got {type(lp)}")
+    
+    # Get all reactions that need updating
+    all_rxn_ids = set(lower_bounds.keys()) | set(upper_bounds.keys())
+    
+    # Build lists for batch updates
+    forward_lb_updates = []
+    forward_ub_updates = []
+    reverse_lb_updates = []
+    reverse_ub_updates = []
+    
+    updated_count = 0
+    skipped_count = 0
+    
+    for rxn_id in all_rxn_ids:
+        try:
+            rxn = model.reactions.get_by_id(rxn_id)
+        except KeyError:
+            if verbose:
+                print(f"Warning: Reaction {rxn_id} not found, skipping")
+            skipped_count += 1
+            continue
+        
+        # Get new bounds (use current if not specified)
+        new_lb = lower_bounds.get(rxn_id, rxn.lower_bound)
+        new_ub = upper_bounds.get(rxn_id, rxn.upper_bound)
+        
+        # Get forward and reverse variable indices
+        forward_var = rxn.forward_variable
+        reverse_var = rxn.reverse_variable
+        
+        try:
+            forward_idx = lp.variables.get_indices(forward_var.name)
+            reverse_idx = lp.variables.get_indices(reverse_var.name)
+        except:
+            print(f"Warning: Could not find forward/reverse variables for {rxn_id}")
+            skipped_count += 1
+            continue
+        
+        # Calculate new bounds for forward and reverse variables
+        # For net_flux = forward - reverse to be in [lb, ub]:
+        
+        # Forward variable bounds: [max(0, lb), max(0, ub)]
+        new_forward_lb = max(0, new_lb)
+        new_forward_ub = max(0, new_ub)
+        
+        # Reverse variable bounds: [max(0, -ub), max(0, -lb)]
+        new_reverse_lb = max(0, -new_ub)
+        new_reverse_ub = max(0, -new_lb)
+        
+        #Add to the list
+        forward_lb_updates.append((forward_idx, new_forward_lb))
+        forward_ub_updates.append((forward_idx, new_forward_ub))
+        reverse_lb_updates.append((reverse_idx, new_reverse_lb))
+        reverse_ub_updates.append((reverse_idx, new_reverse_ub))
+        
+        updated_count += 1
+        
+        if verbose:
+            print(f"  {rxn_id}: [{new_lb}, {new_ub}] -> "
+                  f"forward=[{new_forward_lb}, {new_forward_ub}], "
+                  f"reverse=[{new_reverse_lb}, {new_reverse_ub}]")    
+    # Apply updates using CPLEX batch operations (THIS IS THE KEY SPEEDUP)
+    lp.variables.set_lower_bounds(forward_lb_updates)
+    lp.variables.set_upper_bounds(forward_ub_updates)
+    lp.variables.set_lower_bounds(reverse_lb_updates)
+    lp.variables.set_upper_bounds(reverse_ub_updates)    
+    total_updates = len(forward_lb_updates) + len(forward_ub_updates) + len(reverse_lb_updates) + len(reverse_ub_updates)
+    print(f"Updated bounds for {updated_count} reactions using CPLEX direct interface. \nWARNING: Values in the cobrapy model object have not been updated.")
+    if verbose:
+              print(f"  ({total_updates} total variable bound updates: "
+              f"{len(forward_lb_updates)} forward_lb, {len(forward_ub_updates)} forward_ub, "
+              f"{len(reverse_lb_updates)} reverse_lb, {len(reverse_ub_updates)} reverse_ub)")
+              if skipped_count > 0:
+                 print(f"Skipped {skipped_count} reactions (not found in model)")    
+    return model
+
+####

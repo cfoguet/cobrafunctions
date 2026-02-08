@@ -521,7 +521,7 @@ def build_weight_dicts(signficant_gene_list,cobra_model,max_reactions4gene=10,ge
             gene_met_reactions.add(rid)
             vref=vref_dict[rid]
             #Todo add correction to genes catalyzing many reactions
-            target_vref=round(vref*fold_change,7)
+            target_vref=vref*fold_change #####round(vref*fold_change,7) #removed this as it shouln't be needed
             weight=float(gene_weight)
             if normalize_by_scale_genes==True:
                flux_factor= max(abs(pow(vref-target_vref,2)),min_flux4weight)
@@ -1065,7 +1065,8 @@ def solve_qmta_cplex(cplex_problem,target_model,reference_model,n_threads):
                 f.write(sample_name+"\n")
                 f.close()
                 
-      solution=cplex_format_solution(cplex_problem, target_model) 
+      solution=cplex_format_solution(cplex_problem, target_model)
+      print(cplex_problem.solution.get_objective_value()) 
       for reaction in reference_model.reactions:
         if reaction.id not in solution.x_dict:
            solution.x_dict[reaction.id]=0 

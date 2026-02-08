@@ -2,12 +2,19 @@ import pandas as pd
 from cobra.util import solver as sutil
 from optlang.symbolics import Zero as optlang_Zero, add #, Pow
 
+try:
+  from cplex import Cplex
+except:
+  pass  
+        
+
+
 import logging
 logger = logging.getLogger(__name__)
 
 #TODO Implement a direct cplex interface compatible with this as it might be faster
 
-def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},expanded_reaction_mapping_dict={},copy_model=True,verbose=False,):
+def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_weight={},scaling_factor=None,expanded_reaction_mapping_dict={},copy_model=True,verbose=False,):
     r"""
     ###Adapated from add_moma in cobrapy
     ###WARNING: Function will not work if there is only one target flux and its weight is 1
@@ -38,9 +45,10 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
        expanded_reaction_mapping_dict={x:{"forward_reactions":[x],"reverse_reactions":[]} for x in target_fluxes.keys()}
     
     #Scale weights 
-    scaling_factor=max([abs(target_fluxes_weight[x])for x in target_fluxes_weight])
-    if(verbose):
-       print("Scaling factor for weights: "+str(scaling_factor))
+    if scaling_factor is None:
+       scaling_factor = max(abs(target_fluxes_weight[x]) for x in target_fluxes_weight)
+    if verbose:
+        print(f"Scaling factor for weights: {scaling_factor}")
     #End CF added
     if "old_objective" in model.solver.variables:
         raise ValueError("The model is already adjusted for Flux Difference")
@@ -75,6 +83,7 @@ def add_quadratic_difference_minimization(model, target_fluxes={},target_fluxes_
         #We will make our own net flux expression to handle the case of forward/reverse reactions
         net_flux_expression=optlang_Zero
         ##Forward/Standard reaction
+        
         for forward_rid in forward_reactions:
            r=model.reactions.get_by_id(forward_rid)
            if r.forward_variable.ub>0:
@@ -128,13 +137,18 @@ def update_quadratic_objective_coefficients(
     model,
     target_fluxes,
     target_fluxes_weight,
+    scaling_factor=None,
     verbose=False
 ):
     if isinstance(target_fluxes, pd.Series):
         target_fluxes = target_fluxes.to_dict()
     if isinstance(target_fluxes_weight, pd.Series):
         target_fluxes_weight = target_fluxes_weight.to_dict()
-    scaling_factor = max(abs(target_fluxes_weight[x]) for x in target_fluxes_weight)
+    if scaling_factor is None:
+       # Scale weights
+       scaling_factor = max(abs(target_fluxes_weight[x]) for x in target_fluxes_weight)
+    if verbose:
+        print(f"Scaling factor for weights: {scaling_factor}")
     prob = model.problem
     quad_terms = []
     lin_terms = []
@@ -154,6 +168,116 @@ def update_quadratic_objective_coefficients(
         print(f"Objective rebuilt for {len(target_fluxes)} fluxes")
     return model
     
+def update_quadratic_objective_coefficients_cplex(
+    model,
+    target_fluxes,
+    target_fluxes_weight,
+    scaling_factor=None,
+    verbose=False
+):
+    """
+    Update quadratic objective coefficients using direct CPLEX interface.
+    Orders of magnitude faster than optlang symbolic version.
+    
+    Parameters
+    ----------
+    model : cobra.Model
+        Model with existing net_flux variables (must use CPLEX solver)
+    target_fluxes : dict
+        New target flux values
+    target_fluxes_weight : dict
+        New weights
+    verbose : bool
+        Print progress
+        
+    Returns
+    -------
+    cobra.Model
+        Model with updated objective
+    """
+    # Verify CPLEX solver
+    #try:
+    #    from cplex import Cplex
+    #except ImportError:
+    #    raise ImportError("CPLEX not available")
+    
+    current_solver = sutil.interface_to_str(model.problem)
+    if 'cplex' not in current_solver.lower():
+        raise ValueError(
+            f"Model is using {current_solver} solver, but this function requires CPLEX.\n"
+            f"Use model.solver = 'cplex' before calling this function, or use the "
+            f"non-CPLEX version: update_quadratic_objective_coefficients()"
+        )
+    
+    if isinstance(target_fluxes, pd.Series):
+        target_fluxes = target_fluxes.to_dict()
+    
+    if isinstance(target_fluxes_weight, pd.Series):
+        target_fluxes_weight = target_fluxes_weight.to_dict()
+    
+    # Scale weights
+    if scaling_factor is None:
+       # Scale weights
+       scaling_factor = max(abs(target_fluxes_weight[x]) for x in target_fluxes_weight)
+    if verbose:
+        print(f"Scaling factor for weights: {scaling_factor}")    
+    #Reset Objective
+    #model.objective = model.problem.Objective(optlang_Zero, direction='min')
+    # Access CPLEX problem directly
+    lp = model.solver.problem
+    
+    # Verify it's a CPLEX object
+    if not isinstance(lp, Cplex):
+        raise RuntimeError(f"Expected CPLEX problem but got {type(lp)}")
+    
+    # Build coefficient lists
+    quadratic_updates = []
+    linear_updates = []
+    
+    # Collect all net_flux variable names
+    var_names = []
+    flux_ids = []
+    for flux_id in target_fluxes.keys():
+        var_name = "net_flux_" + flux_id
+        if var_name in model.solver.variables:
+            var_names.append(var_name)
+            flux_ids.append(flux_id)
+        else:
+            if verbose:
+                print(f"Warning: Variable {var_name} not found, skipping")
+    
+    # Get all indices at once (batch operation)
+    var_indices = lp.variables.get_indices(var_names)
+    
+    # Build update lists
+    for var_index, flux_id in zip(var_indices, flux_ids):
+        target_flux_value = target_fluxes[flux_id]
+        weight = target_fluxes_weight[flux_id] / scaling_factor
+        
+        # Quadratic coefficient: weight
+        quadratic_updates.append((var_index, var_index, weight*2)) #Weight needs to be multiplied by 2 because Cplex seems to divide the quadratic terms by 2. This is done by default int optlang
+        
+        # Linear coefficient: -2 * weight * target
+        linear_updates.append((var_index, -2 * weight * target_flux_value))
+        
+        if verbose:# and len(quadratic_updates) <= 10:
+            print(f"  {flux_id}: target={target_flux_value:.4g}, weight={weight:.4g}")
+        #elif verbose and len(quadratic_updates) == 11:
+        #    print(f"  ... (suppressing output for remaining {len(var_names)-10} fluxes)")
+    
+    # Apply updates using CPLEX batch operations
+    if quadratic_updates:
+        for i, j, coef in quadratic_updates:
+            lp.objective.set_quadratic_coefficients(i, j, coef)
+    
+    if linear_updates:
+        lp.objective.set_linear(linear_updates)
+    
+    if verbose:
+        print(f"Objective rebuilt for {len(target_fluxes)} fluxes using CPLEX interface")
+    
+    return model
+
 
 def qMTA_get_optimization_target_fluxes_and_weights(
     reference_fluxes,
@@ -168,7 +292,7 @@ def qMTA_get_optimization_target_fluxes_and_weights(
     unchanged_reaction_base_weight=0.5,
     fold_change_is_Log2=True,
     reference_fluxes_are_net_fluxes=False,
-    max_Log2FC_change=99999999, #max_fold_change
+    max_Log2FC_change=None, #max_fold_change
     scale_target_fold_change_weight_by_target_flux_difference=True, #normalize_by_scale_genes
     scale_measured_target_flux_weight_by_target_flux_difference=False, #normalize_by_scale_mets
     scale_unchanged_reactions_by_reference_flux=True, #normalize_by_scale_unchanged_reactions
@@ -266,8 +390,7 @@ def qMTA_get_optimization_target_fluxes_and_weights(
         raise Exception("Error: reference_fluxes is empty")
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
-        if verbose:
-            print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+        print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
         from .ec import get_ec_expanded_reaction_mapping
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model, 
@@ -297,8 +420,9 @@ def qMTA_get_optimization_target_fluxes_and_weights(
         }
     
     # Get Max and Min fold changes thresholds
-    max_fc = pow(2, max_Log2FC_change)
-    min_fc = pow(2, -max_Log2FC_change)
+    if max_Log2FC_change is not None:
+       max_fc = pow(2, max_Log2FC_change)
+       min_fc = pow(2, -max_Log2FC_change)
     
     # Get fold change fluxes
     fold_change_fluxes = set(target_net_flux_fold_change.keys()) - set(fluxes_to_omit)
@@ -349,7 +473,8 @@ def qMTA_get_optimization_target_fluxes_and_weights(
             continue
         
         fold_change = target_net_flux_fold_change[net_flux_id]
-        fold_change = min(max_fc, max(min_fc, fold_change))
+        if max_Log2FC_change is not None:
+           fold_change = min(max_fc, max(min_fc, fold_change))
         target_flux = vref * fold_change
         optimization_target_fluxes[net_flux_id] = target_flux
         

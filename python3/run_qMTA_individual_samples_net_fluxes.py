@@ -10,19 +10,17 @@ if __name__ == '__main__':
  import time
  from cobrafunctions.write_spreadsheet import write_spreadsheet
  from cobrafunctions.read_spreadsheets import read_spreadsheets
- from cobrafunctions.qMTA import  relax_constraints, run_qMTA
+ from cobrafunctions.cobra_functions import  relax_constraints#, run_qMTA
  from cobrafunctions.ec import get_ec_expanded_reaction_mapping
- from cobrafunctions.weighted_quadratic_flux_minimization import add_quadratic_difference_minimization, update_quadratic_objective_coefficients, qMTA_get_optimization_target_fluxes_and_weights
- 
- individual_output=False #Check if xlsx or Json will be saved
+ from cobrafunctions.weighted_quadratic_flux_minimization import add_quadratic_difference_minimization, update_quadratic_objective_coefficients, update_quadratic_objective_coefficients_cplex, qMTA_get_optimization_target_fluxes_and_weights
  
  
- output_signficant_genes_only=False
- output_omit_reactions_with_more_than_max_genes=False
- normalize_by_scale_genes=True#"debug" #Debug =Warning this uses a normalization by flux value
- normalize_by_scale_unchanged_reactions=True #"debug"
  
- n_threads=1 #Default number of threads
+ #output_signficant_genes_only=False
+ #output_omit_reactions_with_more_than_max_genes=False
+ #normalize_by_scale_genes=True#"debug" #Debug =Warning this uses a normalization by flux value
+ #normalize_by_scale_unchanged_reactions=True #"debug"
+ 
  aggregated_file_prefix="fluxes_" #Default output prefix
  log2fc_th=-1 #Default value, all variations will be considered
  min_flux_to_apply_fold_change=1e-6 #Default value, fold change in reactions with less than this flux will not be considered
@@ -32,7 +30,21 @@ if __name__ == '__main__':
  sample_list_file=None #Default, samples will be selected from reaction expression header excluding the first column
  sample_columns=1  #last columm before samples. Irrelevant if sample file is provided
  use_reaction_expression=True #Only True is supported currently
+ input_is_log2FC=True
  
+ #Solver Paramters
+ ##Optlang Paramters. Work with any solver
+ solver_qp_method="auto" #0 in cplex
+ solver_tolerances_feasibility=1e-9
+ solver_tolerances_optimality=1e-9
+ solver_verbosity=0 #3 is max verbosity
+ solver_presolve=True #options are True, False or auto
+ #Cplex specific parameters. Only apply to cplex. Optlang lacks binding for these parameters
+ cplex_n_threads=1
+ cplex_barrier_convergetol=1e-9
+ cplex_emphasis_numerical=1
+ 
+  
  """
  run_qMTA.py
  This script runs the quadratic metabolic transformation algorithm (qMTA). qMTA seeks to minimize the difference between the simulated flux distribution and the product of the putative fold changes by the reference flux distribution (target flux) while also minimizing the flux variation from the reference flux distribution in reactions without gene expression fold change. Additionally, both terms are scaled by the difference between the reference flux distribution and the target flux and the reference flux distribution, respectively, to prevent biases towards reactions with high reference flux values. Thus, qMTA can identify the flux map most consistent with gene expression fold changes starting from a reference flux distribution and compute personalized flux maps.
@@ -135,21 +147,6 @@ if __name__ == '__main__':
     os.makedirs(output_folder)
  
  os.chdir(output_folder)
- 
- try:
-  if not os.path.exists("xlsx") and individual_output:
-    os.makedirs("xlsx")
- except:
-    pass
-
- try:
-  if not os.path.exists("json") and individual_output:
-    os.makedirs("json")
- except:
-     pass
- 
- 
- 
  if os.path.isfile(aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv") or os.path.isfile(aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv.gz"):
    print("Output already exists, stopping script")
    quit()  
@@ -168,10 +165,13 @@ if __name__ == '__main__':
     names_to_omit=["dummy","",None,"V1","id"]
     samples=[x for x in reaction_data.columns if x not in names_to_omit]
  
+ print("samples selected", len(samples))
  #Set reaction to index
  reaction_data.set_index(reaction_data.columns[0],inplace=True)
- 
- print("samples selected", len(samples))
+ #Convert to Fold Change if appropiate
+ if input_is_log2FC:
+    reaction_data[samples]=2**reaction_data[samples]
+    print("Converting to linear scale") 
  reaction_list=[x.id for x in target_model.reactions]
  #Get Mapping Dict 
  expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
@@ -202,15 +202,15 @@ if __name__ == '__main__':
         target_fold_change_base_weight=target_fold_change_base_weight,
         target_measured_flux_base_weight=1,#Not used
         unchanged_reaction_base_weight=unchanged_reaction_base_weight,
-        fold_change_is_Log2=True,
+        fold_change_is_Log2=False,
         reference_fluxes_are_net_fluxes=True,
-        max_Log2FC_change=99999999, #max_fold_change
+        max_Log2FC_change=None, #max_fold_change
         scale_target_fold_change_weight_by_target_flux_difference=True, #normalize_by_scale_genes
         scale_measured_target_flux_weight_by_target_flux_difference=False, #normalize_by_scale_mets
         scale_unchanged_reactions_by_reference_flux=True, #normalize_by_scale_unchanged_reactions
         min_factor_for_scaling=min_factor_for_scaling, #min_flux4weight
         min_flux_to_apply_fold_change=min_factor_for_scaling, #min_flux_fold_change
-        precision=6,
+        precision=None, #Not rounding the weights allows to simplify the unchanged fluxes non-quadratic term to 2
         expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,
         verbose=False
         )
@@ -218,20 +218,40 @@ if __name__ == '__main__':
     if(n==0):
       #Set Model
       print("Set Model")
-      qp_model,optimized_fluxes=add_quadratic_difference_minimization(target_model, target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,copy_model=True,verbose=False) 
+      qp_model,optimized_fluxes=add_quadratic_difference_minimization(target_model, target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,copy_model=True,scaling_factor=1,verbose=False) 
       #Check that all target fluxes are acually optimized
       #Otherwise update will fail
       missing_fluxes=set(optimization_target_fluxes)-set(optimized_fluxes)
       if(len(missing_fluxes)>1):
           raise Exception("Blocked reactions could not be optimized. Please remove them from the model "+", ".join(missing_fluxes))
-    else:
-      #update existing model  
-      qp_model=update_quadratic_objective_coefficients(model=qp_model,target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,verbose=False)
+      #Set Solver Parameters
+      ##Set Optlang Parameters
+      qp_model.solver.configuration.qp_method=solver_qp_method 
+      qp_model.solver.configuration.tolerances.feasibility=solver_tolerances_feasibility
+      qp_model.solver.configuration.tolerances.optimality=solver_tolerances_optimality
+      qp_model.solver.configuration.verbosity=solver_verbosity
+      qp_model.solver.configuration.presolve=solver_presolve
+      #Get current_solver
+      current_solver = cobra.util.solver.interface_to_str(qp_model.problem)
+      print("Current Solver is "+current_solver)
+      if 'cplex' in current_solver.lower():
+        solver_is_cplex=True
+        qp_model.solver.problem.parameters.threads.set(cplex_n_threads)
+        qp_model.solver.problem.parameters.emphasis.numerical.set(cplex_emphasis_numerical)
+        qp_model.solver.problem.parameters.barrier.convergetol.set(cplex_barrier_convergetol)   
+      else:
+        solver_is_cplex=False
+    #update existing model. For consistency we will also run it at n=0  
+    if solver_is_cplex:
+        #Updating the cplex problem is faster than using the optlang interface
+        qp_model=update_quadratic_objective_coefficients_cplex(model=qp_model,target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,verbose=False,scaling_factor=1)
+    else:  
+        qp_model=update_quadratic_objective_coefficients(model=qp_model,target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,verbose=False,scaling_factor=1)
     #Solve model
     time2=time.time()
     sol=qp_model.optimize()
     time3=time.time()
-    print("Time to set targets and weights: ",round(time1-start_time,2),"s. Time to update model:", round(time2-time1,2),"s. Time to solve:", round(time3-time2,2),"s. Total:", round(time3-start_time,2),"s.")
+    print("Objective Value:"+str(sol.objective_value)+" "+sol.status+" ;Time to set targets & weights: ",round(time1-start_time,2),"s. Time to update model:", round(time2-time1,2),"s. Time to solve:", round(time3-time2,2),"s. Total:", round(time3-start_time,2),"s.")
     status=sol.status
     if status=="optimal":
        output_data.append(sol.fluxes)
