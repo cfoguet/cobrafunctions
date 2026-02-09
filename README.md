@@ -5,7 +5,7 @@ This is a repository of COnstraint-Based Reconstruction (COnstraint-Based Recons
 - **Calculating Genetically Personalyzed Fluxes.**
 
 ## Installation
-The Python scripts are compatible with Python 3, and the source code is provided in the python3 directory. Running “python setup.py install” will install the scripts and all their open source dependencies. Additionally, the solver  CPLEX and its associated python package are also required and must be installed separately. Cplex is freely available for academic use as part of the [IBM academic initiative](https://www.ibm.com/support/pages/ibm-ilog-optimization-academic-initiative) . We recommend using a virtual environment to avoid compatibility issues with existing Python installations.
+The Python scripts the source code is provided in the python3 directory. Running “pip install .” will install the scripts and all their open source dependencies. Additionally, the solver  CPLEX and its associated python package are also required and must be installed separately. Cplex is freely available for academic use as part of the [IBM academic initiative](https://www.ibm.com/support/pages/ibm-ilog-optimization-academic-initiative) . We recommend using a virtual environment to avoid compatibility issues with existing Python installations.
 
 Note: While we also provide some code for Python 2, support for Python 2 has been deprecated, and its code will no longer be updated.
 

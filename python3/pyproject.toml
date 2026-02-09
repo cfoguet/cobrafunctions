@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cobrafunctions"
+version = "1.3"
+description = "cobrafunctions"
+authors = [
+    {name = "Carles Foguet"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl==3.0.9",
+    "cobra==0.29.1",
+    "scipy==1.14.1"
+]
+
+[tool.setuptools]
+script-files = [
+    "gim3e_and_sampling.py",
+    "run_qMTA_individual_samples.py",
+    "run_qMTA_individual_samples_net_fluxes.py",
+    "map_expression_to_reactions.py"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cobrafunctions*"]
