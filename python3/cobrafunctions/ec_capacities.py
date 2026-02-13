@@ -701,3 +701,34 @@ def get_net_reaction_capacities(
         protein_usage_capacities_dict,
         protein_usage_capacities_components_dict
     )
+
+
+#Not used
+#def get_net_reaction_genes(model,expanded_reaction_mapping_dict,ignore_complexes=True):
+#    #ignore_complexes=True means that it will not distinguish gene rules with AND (it will add all genes)
+#    mapping_dict_with_genes=copy.deepcopy(expanded_reaction_mapping_dict)
+#    for base_id in mapping_dict_with_genes:
+#        forward_reaction_ids=mapping_dict_with_genes[base_id]["forward_reactions"]
+#        forward_reaction_objects=[model.reactions.get_by_id(rid) for rid in forward_reaction_ids]
+#        reverse_reaction_ids=mapping_dict_with_genes[base_id]["reverse_reactions"]
+#        reverse_reaction_objects=[model.reactions.get_by_id(rid) for rid in reverse_reaction_ids]
+#        reverse_genes=set()
+#        forward_genes=set()
+#        if ignore_complexes:
+#           if len(forward_reaction_objects)>0:
+#              for forward_reaction_object in forward_reaction_objects:
+#                  forward_genes.update(gene.id for gene in forward_reaction_object.genes)
+#           if len(reverse_reaction_objects)>0:
+#              for reverse_reaction_object in reverse_reaction_objects:
+#                  reverse_genes.update(gene.id for gene in reverse_reaction_object.genes)
+#            #If there are both forward and reverse reactions check if they match
+#           if  len(forward_reaction_objects)>0 and  len(reverse_reaction_objects)>0:
+#                if len(forward_genes-reverse_genes) >0:       
+#                    raise ValueError("Forward and reverse reactions have different genes in "+base_id+" forward genes: "+str(forward_genes)+" reverse genes: "+str(reverse_genes))
+#        else:
+#            raise Exception("ignore_complexes=False is not yet implemented")
+#        base_reaction_genes=forward_genes
+#        base_reaction_genes.update(reverse_genes) #In cases fowward is empty and reverse not
+#        mapping_dict_with_genes[base_id]["genes"]=base_reaction_genes
+#    return mapping_dict_with_genes
+
