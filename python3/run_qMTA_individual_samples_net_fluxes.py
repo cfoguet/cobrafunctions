@@ -11,7 +11,7 @@ if __name__ == '__main__':
  from cobrafunctions.write_spreadsheet import write_spreadsheet
  from cobrafunctions.read_spreadsheets import read_spreadsheets
  from cobrafunctions.cobra_functions import  relax_constraints#, run_qMTA
- from cobrafunctions.ec import get_ec_expanded_reaction_mapping
+ from cobrafunctions.ec_base import get_ec_expanded_reaction_mapping
  from cobrafunctions.weighted_quadratic_flux_minimization import add_quadratic_difference_minimization, update_quadratic_objective_coefficients, update_quadratic_objective_coefficients_cplex, qMTA_get_optimization_target_fluxes_and_weights
  
  

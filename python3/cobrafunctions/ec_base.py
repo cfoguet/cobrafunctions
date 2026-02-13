@@ -478,7 +478,7 @@ def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzy
     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
     missing_genes=[]
     #From the reactions to omit get the enzymes to omit
-    proteins_to_omit=copy.deepcopy(proteins_to_omit)
+    proteins_to_omit=proteins_to_omit.copy()
     for rid in reactions_to_omit:
         if rid in model.reactions:
            reaction=model.reactions.get_by_id(rid)
@@ -561,3 +561,4 @@ def find_lowest_feasible_enzyme_expression_factor(
 		)
 		best_solution = cobra.flux_analysis.pfba(test_model)
 	return best_factor, best_solution
+

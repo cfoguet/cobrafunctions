@@ -12,7 +12,6 @@ from optlang.symbolics import Zero, add as optlang_add
 from cobra.core import Configuration, get_solution
 from cobra.util import ProcessPool
 from cobra.util import solver as sutil
-from .ec import get_ec_expanded_reaction_mapping
 
 
 if TYPE_CHECKING:
@@ -187,6 +186,7 @@ def flux_variability_analysis_net_flux(
     
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
+        from .ec_base import get_ec_expanded_reaction_mapping
         if verbose:
             print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(

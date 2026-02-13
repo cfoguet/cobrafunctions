@@ -391,7 +391,7 @@ def qMTA_get_optimization_target_fluxes_and_weights(
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
         print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
-        from .ec import get_ec_expanded_reaction_mapping
+        from .ec_base import get_ec_expanded_reaction_mapping
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model, 
             reverse_reaction_pattern="_REV", 
@@ -402,7 +402,7 @@ def qMTA_get_optimization_target_fluxes_and_weights(
     
     # Convert reference fluxes to net fluxes if needed
     if reference_fluxes_are_net_fluxes == False:
-        from .ec import get_net_fluxes_from_ec_model
+        from .ec_base import get_net_fluxes_from_ec_model
         
         print("Converting reference fluxes to net fluxes")
         net_fluxes = get_net_fluxes_from_ec_model(

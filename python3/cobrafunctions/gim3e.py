@@ -273,7 +273,7 @@ def integrate_omics_gim3e_and_remove(metabolic_model,gene_expression_file,fracti
           If add_as_constraints is set to True this determines the precision of the constraints that will be added
    """
    from .netflux_variability import flux_variability_analysis_net_flux
-   from .ec import get_ec_expanded_reaction_mapping
+   from .ec_base import get_ec_expanded_reaction_mapping
 
    
    if percentile in (True,"true","True",1,"1","yes"):
