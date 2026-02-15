@@ -293,16 +293,21 @@ def remove_isoforms_information(model,separator="\."):
 
 
 
-def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False,method="optgp",thinning=100):
+def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False,return_dataframe=False,method="optgp",thinning=100):
     print(method, thinning)
     reaction_ids=[x.id for x in model.reactions]
     if objective!=None:
         print(model.reactions.get_by_id(objective).lower_bound)
     flux_dict_list=[]
     for i in range(0,starts):
-       result_matrix = sample(model, n,processes=processes,method=method,thinning=thinning).to_numpy() #Valid methods are optgp and achr. Process is only used in optgp. Thinning (“Thinning” means only recording samples every n iterations) is only used in achr
+       result_matrix = sample(model, n,processes=processes,method=method,thinning=thinning).to_numpy() #Valid methods are optgp and achr. Process is only used in optgp. Thinning (“Thinning” means only recording samples every n iterations) is only used in both
        result_matrix=np.asmatrix(result_matrix)
-       if not return_matrix:
+       if return_matrix or return_dataframe:
+            if i==0:
+               aggregated_results=result_matrix
+            else:
+               aggregated_results=np.vstack((aggregated_results,result_matrix)) 
+       else:
          for row in result_matrix:
           flux_dict={}
           for n_flux,flux in enumerate(row):
@@ -310,15 +315,17 @@ def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False
           flux_dict_list.append(flux_dict)
           if objective!=None:
              print(flux_dict[objective])
-       elif return_matrix:
-            if i==0:
-               aggregated_results=result_matrix
-            else:
-               aggregated_results=np.vstack((aggregated_results,result_matrix)) 
-    if not return_matrix:
-       return flux_dict_list
-    else:
+    if return_dataframe:
+        aggregated_results=pd.DataFrame(aggregated_results)
+        aggregated_results.columns=reaction_ids
+        aggregated_results['sample_n'] = ["sample_"+str(x) for x in range(n)]
+        aggregated_results.set_index("sample_n",inplace=True)
+        return  aggregated_results       
+    elif return_matrix:
        return np.transpose(aggregated_results), reaction_ids
+    else:
+       return flux_dict_list
+
 
 
     

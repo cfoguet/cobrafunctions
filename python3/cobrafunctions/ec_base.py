@@ -155,6 +155,104 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing blocked reactions")      
     return net_flux_fva, reactions_to_remove
 
+#Simplyfy EC model
+def simplify_ec_model(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mapping_dict=None,usage_reactions_prefix="usage_prot_",net_flux_fva=None,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
+    #Builds a simplified model by contracting all the expanded reactions and setting the bounds to the bounds estimated by net flux variabiliaty 
+    #This is pointless unless gene expression has been used to set protein constraints
+    #WARNING: This doesn't fully encapsulate the ec model functionality as it can't handle competitions between reactions for same enzymes
+    #WARNING: This assumes tha the mapping is correct and all expanded reactions only difer on the protein metabolites
+    from .netflux_variability import flux_variability_analysis_net_flux
+    
+    #copy the input model
+    model=ec_model.copy()
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites before simplifying")    
+    #Start by removing reactions that are already blocked
+    blocked_reactions=[x for x in model.reactions if x.bounds==(0,0)]
+    print(str(len(blocked_reactions))+" reactions are already blocked")
+    model.remove_reactions(blocked_reactions)
+    cobra.manipulation.delete.prune_unused_metabolites(model) 
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing reactions with 0,0 bounds")
+    if expanded_reaction_mapping_dict is None:
+           if verbose:
+              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+           expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
+                  model, 
+                  reverse_reaction_pattern="_REV", 
+                  isoenzyme_reaction_pattern="_EXP_\\d+",
+                  patterns_to_ommit=["^usage_prot_"],
+                  verbose=False)
+    if net_flux_fva==None:
+      net_flux_fva=flux_variability_analysis_net_flux( model=model,
+         expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,
+         flux_list= list(expanded_reaction_mapping_dict.keys()),
+         fraction_of_optimum= 0,
+         processes= fva_processes,
+         solver_tolerance_feasibility= fva_solver_tolerance_feasibility,
+         solver_tolerance_optimality= fva_solver_tolerance_optimality,
+         verbose=verbose)
+    else:
+       print ("Reusing Net FluxFva")
+    #Remove usage reactions and protein metabolites 
+    usage_reactions=[x for x in model.reactions if x.id.startswith(usage_reactions_prefix)]
+    protein_metabolites=[]
+    for usage_reaction in usage_reactions:
+       if len(usage_reaction.metabolites)>1:
+          raise Exception("Protein Usage Reaction has more than 1 metabolite")
+       protein_metabolites.append(list(usage_reaction.metabolites)[0])
+    print("Removing "+str(len(usage_reactions))+" usage reactions and "+str(len(protein_metabolites))+" protein metabolites")   
+    model.remove_reactions(usage_reactions)
+    model.remove_metabolites(protein_metabolites,destructive=False)
+    #Remove all reactions but 1 for each net flux, rename this one to the net flux name
+    reactions_to_remove=[]
+    for net_flux_id in net_flux_fva.index:
+        min_net_flux=float(net_flux_fva.loc[net_flux_id, "minimum"])
+        max_net_flux=float(net_flux_fva.loc[net_flux_id, "maximum"])
+        #Set boundaries to 0 if they are under the min flux
+        if abs(min_net_flux)<min_flux:
+           min_net_flux=0
+        if abs(max_net_flux)<min_flux:
+           max_net_flux=0
+        #Get all mapped reactions
+        #If the reaction only has reverse we will need to flip it
+        if len(expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"])==0:
+           flip_reaction_flag=True
+           print("Net flux "+net_flux_id+" has only reverse reactions, will flip the reaction direction")
+        else:
+           flip_reaction_flag=False
+        mapped_reactions_ids=expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]+expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]
+        #We will keep the first forward reaction 
+        gene_rules=""
+        for n, rid in enumerate(mapped_reactions_ids):
+           if n==0:
+              reaction_to_keep=model.reactions.get_by_id(rid)
+              reaction_to_keep.id=net_flux_id
+              reaction_to_keep.bounds=(round(min_net_flux,precision),round(max_net_flux,precision))
+              if flip_reaction_flag:
+                  #If we add -2 of the original coefficient we will reverse the reaction
+                  reaction_to_keep.add_metabolites(
+                    {met: -2*coef for met, coef in reaction_to_keep.metabolites.items()})
+              local_gene_rule=reaction_to_keep.gene_reaction_rule
+              if "and" in local_gene_rule:
+                 local_gene_rule="("+local_gene_rule+")"
+              if local_gene_rule!="":
+                 gene_rules=local_gene_rule
+           else:
+              reaction_to_remove=model.reactions.get_by_id(rid)
+              local_gene_rule=reaction_to_remove.gene_reaction_rule
+              if "and" in local_gene_rule:
+                 local_gene_rule="("+local_gene_rule+")"
+              if local_gene_rule!="":
+                 if gene_rules!="":
+                    gene_rules+=" or "+local_gene_rule
+                 else:
+                    gene_rules=local_gene_rule
+              reactions_to_remove.append(reaction_to_remove)
+        reaction_to_keep.gene_reaction_rule=gene_rules
+    print("Removing "+str(len(reactions_to_remove))+" reactions")
+    model.remove_reactions(reactions_to_remove)
+    print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after simplification")
+    return model
+
 
 
 """Add reporter metabolites and reactions to measure net fluxes."""

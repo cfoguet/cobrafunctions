@@ -173,7 +173,7 @@ if __name__ == '__main__':
     correct_sbml_model(sample+"_gim3e__constrained_model.sbml")
     if sample in conditions_to_sample:
        print("Starting Sampling:") 
-       aggregated_results, reaction_ids=sampling(model,n=n_samples,processes=1,objective=None,starts=1,return_matrix=True,method="achr",thinning=thinning)
+       aggregated_results, reaction_ids=sampling(model,n=n_samples,processes=1,objective=None,starts=1,return_matrix=True,return_dataframe=False,method="achr",thinning=thinning)
        reaction_n_dict={}
        for n,rid in enumerate(reaction_ids):
            reaction_n_dict[rid]=n            
