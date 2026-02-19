@@ -378,32 +378,67 @@ def add_net_flux_reporter_reactions(
 
 
 
-def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=None,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=None,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",minimal_output=False):
     #Given a dictionary or pd.series of fluxes for a model with forward and reverse reactions, return a dictionary with net fluxes
-    if isinstance(fluxes, pd.Series):
-       fluxes = fluxes.to_dict()
+    #If its dataframe it will assume it has samples(rows)x fluxes (columns)
+    
     if ec_expanded_reaction_mapping_dict is None:
-         ec_expanded_reaction_mapping_dict, reverse_reactions = get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern=reverse_reaction_pattern,isoenzyme_reaction_pattern=isoenzyme_reaction_pattern  )
-         
+       ec_expanded_reaction_mapping_dict, reverse_reactions = get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern=reverse_reaction_pattern,isoenzyme_reaction_pattern=isoenzyme_reaction_pattern)
+    #Begin DataFrame Mode
+    if isinstance(fluxes, pd.DataFrame):
+        if output_flux_breakdown:
+            print("output_flux_breakdown=True will be ignored as input is a dataframe")
+        if minimal_output==False:
+            print("minimal_output=False will be ignored as input is a dataframe")
+        net_flux_series = []
 
-    net_fluxes=[]
-    for net_flux_id in ec_expanded_reaction_mapping_dict:
-        flux_str=""
-        forward_flux=0
-        reverse_flux=0
-        for forward_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]:
-            forward_flux+=fluxes.get(forward_r_id,0)
-            flux_str+=forward_r_id+"="+str(round_sig(fluxes.get(forward_r_id,0),3))+";"
-        for reverse_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]:
-            reverse_flux+=fluxes.get(reverse_r_id,0)
-            flux_str+=reverse_r_id+"="+str(round_sig(fluxes.get(reverse_r_id,0),3))+";"
-        net_fluxes.append({"base_rid":net_flux_id,"flux_breakdown":flux_str,"forward_flux":forward_flux,"reverse_flux":reverse_flux,"net_flux":forward_flux - reverse_flux})
-    net_fluxes=pd.DataFrame(net_fluxes)
-    net_fluxes.set_index('base_rid',inplace=True)
-    if not output_flux_breakdown:
-       #Drop flux breakdown column
-       net_fluxes=net_fluxes.drop(columns=["flux_breakdown"])
-    return net_fluxes
+        for net_flux_id, mapping in ec_expanded_reaction_mapping_dict.items():
+            forward_cols = [c for c in mapping["forward_reactions"] if c in fluxes.columns]
+            reverse_cols = [c for c in mapping["reverse_reactions"] if c in fluxes.columns]
+            if forward_cols:
+                forward_sum = fluxes[forward_cols].sum(axis=1)
+            else:
+                forward_sum = 0
+            if reverse_cols:
+                reverse_sum = fluxes[reverse_cols].sum(axis=1)
+            else:
+                reverse_sum = 0
+            net_series = forward_sum - reverse_sum
+            net_series.name = net_flux_id
+            net_flux_series.append(net_series)
+        net_flux_df = pd.concat(net_flux_series, axis=1)
+        return net_flux_df
+        #End DF Mode
+    else: #If it is not dataframe
+        if isinstance(fluxes, pd.Series):
+            fluxes = fluxes.to_dict()
+        net_fluxes=[]
+        net_fluxes_dict={}
+        for net_flux_id in ec_expanded_reaction_mapping_dict:
+            flux_str=""
+            forward_flux=0
+            reverse_flux=0
+            for forward_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]:
+                forward_flux+=fluxes.get(forward_r_id,0)
+                if not minimal_output:
+                    flux_str+=forward_r_id+"="+str(round_sig(fluxes.get(forward_r_id,0),3))+";"
+            for reverse_r_id in ec_expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]:
+                reverse_flux+=fluxes.get(reverse_r_id,0)
+                if not minimal_output:
+                    flux_str+=reverse_r_id+"="+str(round_sig(fluxes.get(reverse_r_id,0),3))+";"
+            if minimal_output:
+                net_fluxes_dict[net_flux_id]=forward_flux - reverse_flux 
+            else:
+                net_fluxes.append({"base_rid":net_flux_id,"flux_breakdown":flux_str,"forward_flux":forward_flux,"reverse_flux":reverse_flux,"net_flux":forward_flux - reverse_flux})
+        if minimal_output:
+            return(net_fluxes_dict) 
+        else:
+            net_fluxes=pd.DataFrame(net_fluxes)
+            net_fluxes.set_index('base_rid',inplace=True)
+            if not output_flux_breakdown:
+                #Drop flux breakdown column
+                net_fluxes=net_fluxes.drop(columns=["flux_breakdown"])
+            return net_fluxes
 
 """
 def protein_usage_pfba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_weight_dict={},enzyme_list=[],verbose=False,pfba_fraction_of_optimum=1/0.999):
@@ -570,54 +605,81 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
    enzyme_usage_df=enzyme_usage_df.sort_values('ratio_enzyme_usage_to_expression', ascending=False)
    return(enzyme_usage_df, max_ratio,quantile_ratio_95)
 
-def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],verbose=True):
+# def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_dict,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],verbose=True):
+#     #Set enzyme usage bounds based on gene expression
+#     #Gene expression is converted to enzyme usage by multiplying by gene_expression_to_enzyme_factor
+#     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
+#     missing_genes=[]
+#     #From the reactions to omit get the enzymes to omit
+#     proteins_to_omit=proteins_to_omit.copy()
+#     for rid in reactions_to_omit:
+#         if rid in model.reactions:
+#            reaction=model.reactions.get_by_id(rid)
+#            reaction_proteins=[x.id.replace("prot_","") for x in reaction.metabolites if x.id.startswith("prot_")]
+#            proteins_to_omit+=reaction_proteins
+#         else:
+#            if verbose:
+#               print("Reaction "+rid+" to omit not in model") 
+#     for reaction in model.reactions.query("usage_prot_"):
+#         enzyme=reaction.id.replace("usage_prot_","")
+#         if enzyme in proteins_to_omit:
+#             if verbose:
+#                 print("Skipping enzyme "+enzyme+" as it is in the omit list")
+#             continue
+#         genes=list(reaction.genes)
+#         if len(genes)!=1:
+#             raise Exception("Wrong number of genes in "+reaction.id)
+#         gene=genes[0].id
+#         gene_expression=gene_expression_dict.get(gene,None)
+#         if gene_expression is None or gene_expression<0:
+#            missing_genes.append(gene)
+#            if verbose:
+#               print("No gene expression found for gene "+gene+" associated to enzyme "+enzyme+" so skipping")
+#            continue
+#         #Get the max enzyme usage flux possible
+#         max_enzyme_usage=gene_expression_to_enzyme_factor*gene_expression
+#         scaled_max_enzyme_usage=max_enzyme_usage*enzyme_kcat_scaling_factor_dict.get(enzyme,1)
+#         reaction.lower_bound=-1*scaled_max_enzyme_usage #Reaction is structure like this prot_A0A0U1RQ18 <--  so flux is negative
+#     return missing_genes
+
+
+def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],usage_prot_reaction_prefix="usage_prot_",verbose=True):
+    #gene_expression_data can be a dict, series or data.frame (1 x n_genes)
     #Set enzyme usage bounds based on gene expression
     #Gene expression is converted to enzyme usage by multiplying by gene_expression_to_enzyme_factor
     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
-    missing_genes=[]
-    #From the reactions to omit get the enzymes to omit
-    proteins_to_omit=proteins_to_omit.copy()
-    for rid in reactions_to_omit:
-        if rid in model.reactions:
-           reaction=model.reactions.get_by_id(rid)
-           reaction_proteins=[x.id.replace("prot_","") for x in reaction.metabolites if x.id.startswith("prot_")]
-           proteins_to_omit+=reaction_proteins
-        else:
-           if verbose:
-              print("Reaction "+rid+" to omit not in model") 
-
-    for reaction in model.reactions.query("usage_prot_"):
-        enzyme=reaction.id.replace("usage_prot_","")
-        if enzyme in proteins_to_omit:
-            if verbose:
-                print("Skipping enzyme "+enzyme+" as it is in the omit list")
-            continue
-        genes=list(reaction.genes)
-        if len(genes)!=1:
-            raise Exception("Wrong number of genes in "+reaction.id)
-        gene=genes[0].id
-        gene_expression=gene_expression_dict.get(gene,None)
-        if gene_expression is None or gene_expression<0:
-           missing_genes.append(gene)
-           if verbose:
-              print("No gene expression found for gene "+gene+" associated to enzyme "+enzyme+" so skipping")
-           continue
-        #Get the max enzyme usage flux possible
-        max_enzyme_usage=gene_expression_to_enzyme_factor*gene_expression
-        scaled_max_enzyme_usage=max_enzyme_usage*enzyme_kcat_scaling_factor_dict.get(enzyme,1)
-        reaction.lower_bound=-1*scaled_max_enzyme_usage #Reaction is structure like this prot_A0A0U1RQ18 <--  so flux is negative
+    from .ec_reaction_capacities import get_enzyme_usage_bounds_from_gene_expression
+    
+    usage_bounds_df, reaction_enzyme_dict, missing_genes=get_enzyme_usage_bounds_from_gene_expression(
+    model=model,
+    gene_expression_data=gene_expression_data,
+    enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+    gene_expression_to_enzyme_factor=gene_expression_to_enzyme_factor,
+    reactions_to_omit=reactions_to_omit,
+    proteins_to_omit=proteins_to_omit,
+    usage_prot_reaction_prefix=usage_prot_reaction_prefix,
+    verbose=verbose)
+    
+    if(len(usage_bounds_df.index)>1):
+      raise Exception("Input should be only one sample")  
+    
+    usage_bounds_dict=usage_bounds_df.iloc[0].to_dict()
+    for usage_reaction_id in usage_bounds_dict:
+        model.reactions.get_by_id(usage_reaction_id).lower_bound=usage_bounds_dict[usage_reaction_id]
     return missing_genes
+
 
 def find_lowest_feasible_enzyme_expression_factor(
 	model,
-	gene_expression_dict,
+	gene_expression_data,
 	enzyme_kcat_scaling_factor_dict,
 	min_factor=0,
 	initial_ratio_estimate=1,
 	tol=1e-6,
     reactions_to_omit=[],
     proteins_to_omit=[],
-	verbose=True
+    solver_tolerance_feasibility=1e-9,
+	verbose=True,
 ):
 	"""
 	Iteratively find the lowest gene_expression_to_enzyme_factor that gives a feasible solution.
@@ -631,11 +693,12 @@ def find_lowest_feasible_enzyme_expression_factor(
 	while high - low > tol:
 		mid = (low + high) / 2
 		test_model = model.copy()
+		test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
 		set_enzyme_usage_bounds_from_gene_expression(
 			test_model,
-			gene_expression_dict,
+			gene_expression_data,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
+			gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit, verbose=False #Otherwise it will print a lot of lines 
 		)
 		solution = test_model.optimize()
 		if verbose:
@@ -650,13 +713,16 @@ def find_lowest_feasible_enzyme_expression_factor(
 	if best_factor is not None:
 		print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
 		#Run pfba to get the flux distribution
-		test_model = model.copy()	
+		test_model = model.copy()
+		test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
 		set_enzyme_usage_bounds_from_gene_expression(
 			test_model,
-			gene_expression_dict,
+			gene_expression_data,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit
+			gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit,
+            verbose=False #Otherwise it will print a lot of lines 
 		)
+		
 		best_solution = cobra.flux_analysis.pfba(test_model)
 	return best_factor, best_solution
 

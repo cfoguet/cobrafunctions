@@ -482,13 +482,17 @@ def is_transport_reaction(reaction, transport_subsystem="Transport", metabolite_
         return is_transporter
         
         
-def is_boundary_reaction(reaction,boundary_subsystem="Exchange/demand reactions"):
+def is_boundary_reaction(reaction,boundary_subsystem="Exchange/demand reactions",patterns_to_omit=["usage_prot"]):
     is_boundary=False
     if(len(reaction.metabolites)==1):
       is_boundary=True  
     #Use subsystem for any we might have missed
     if reaction.subsystem.lower()==boundary_subsystem.lower():
       is_boundary=True
+    for pattern in patterns_to_omit:
+        if pattern in reaction.id:
+           is_boundary=False
+           break
     return(is_boundary) 
 
 

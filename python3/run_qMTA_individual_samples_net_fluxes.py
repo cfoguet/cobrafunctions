@@ -11,7 +11,7 @@ if __name__ == '__main__':
  from cobrafunctions.write_spreadsheet import write_spreadsheet
  from cobrafunctions.read_spreadsheets import read_spreadsheets
  from cobrafunctions.cobra_functions import  relax_constraints#, run_qMTA
- from cobrafunctions.ec_base import get_ec_expanded_reaction_mapping
+ from cobrafunctions.ec_base import get_ec_expanded_reaction_mapping, get_net_fluxes_from_ec_model
  from cobrafunctions.weighted_quadratic_flux_minimization import add_quadratic_difference_minimization, update_quadratic_objective_coefficients, update_quadratic_objective_coefficients_cplex, qMTA_get_optimization_target_fluxes_and_weights
  
  
@@ -31,10 +31,11 @@ if __name__ == '__main__':
  sample_columns=1  #last columm before samples. Irrelevant if sample file is provided
  use_reaction_expression=True #Only True is supported currently
  input_is_log2FC=True
+ return_net_fluxes=True
  
  #Solver Paramters
  ##Optlang Paramters. Work with any solver
- solver_qp_method="auto" #0 in cplex
+ solver_qp_methods=["barrier","network","primal"] #will try these methods in order to try to find an optimal solution
  solver_tolerances_feasibility=1e-9
  solver_tolerances_optimality=1e-9
  solver_verbosity=0 #3 is max verbosity
@@ -226,7 +227,7 @@ if __name__ == '__main__':
           raise Exception("Blocked reactions could not be optimized. Please remove them from the model "+", ".join(missing_fluxes))
       #Set Solver Parameters
       ##Set Optlang Parameters
-      qp_model.solver.configuration.qp_method=solver_qp_method 
+      qp_model.solver.configuration.qp_method=solver_qp_methods[0]
       qp_model.solver.configuration.tolerances.feasibility=solver_tolerances_feasibility
       qp_model.solver.configuration.tolerances.optimality=solver_tolerances_optimality
       qp_model.solver.configuration.verbosity=solver_verbosity
@@ -249,10 +250,16 @@ if __name__ == '__main__':
         qp_model=update_quadratic_objective_coefficients(model=qp_model,target_fluxes=optimization_target_fluxes,target_fluxes_weight=optimization_target_fluxes_weights,verbose=False,scaling_factor=1)
     #Solve model
     time2=time.time()
-    sol=qp_model.optimize()
+    for solver_qp_method in solver_qp_methods:
+        if qp_model.solver.configuration.qp_method!=solver_qp_method:
+           qp_model.solver.configuration.qp_method=solver_qp_method
+        sol=qp_model.optimize()
+        status=sol.status
+        if status=="optimal":
+           break
+        print("\t Objective Value:"+str(sol.objective_value)+" "+sol.status+" with "+solver_qp_method)
     time3=time.time()
-    print("Objective Value:"+str(sol.objective_value)+" "+sol.status+" ;Time to set targets & weights: ",round(time1-start_time,2),"s. Time to update model:", round(time2-time1,2),"s. Time to solve:", round(time3-time2,2),"s. Total:", round(time3-start_time,2),"s.")
-    status=sol.status
+    print("Objective Value:"+str(sol.objective_value)+" "+sol.status+" (method: "+solver_qp_method+"); Time to set targets & weights: ",round(time1-start_time,2),"s. Time to update model:", round(time2-time1,2),"s. Time to solve:", round(time3-time2,2),"s. Total:", round(time3-start_time,2),"s.")
     if status=="optimal":
        output_data.append(sol.fluxes)
        processed_samples.append(sample)
@@ -265,6 +272,12 @@ if __name__ == '__main__':
  output_data = pandas.DataFrame(output_data)
  output_data.index = processed_samples  # Setting row names
  #output_data.columns = reaction_list    # Setting column names
+ #Calculate net fluxes
+ if return_net_fluxes:
+    print("Computing Net Fluxes") 
+    output_data=get_net_fluxes_from_ec_model(target_model,output_data,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,minimal_output=True)
+ 
+ 
  ######Write output
  out_name=aggregated_file_prefix+tissue_prefix+"_personalized_fluxes.csv"
  if(gz): 
