@@ -80,6 +80,19 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     return mapping_dict, reverse_reactions
 
 
+def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+    #Regex for reactions corresponding to isoenzymes e.g. EXP_1, EXP_2
+    isoenzyme_reaction_regex = re.compile(isoenzyme_reaction_pattern)
+    #Regex for reverse reactions
+    rev_regex = re.compile(reverse_reaction_pattern)
+    base_reaction_id=reaction_id
+    if isoenzyme_reaction_regex.search(base_reaction_id):
+            base_reaction_id=isoenzyme_reaction_regex.sub("",base_reaction_id)
+    if rev_regex.search(base_reaction_id):
+            base_reaction_id=rev_regex.sub("",base_reaction_id)
+    return base_reaction_id
+
+
 #Remove reactions without net flux
 def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapping_dict=None,protein_metabolite_prefix="prot",net_flux_fva=None,test_individual_reactions=True,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
     from .netflux_variability import flux_variability_analysis_net_flux
