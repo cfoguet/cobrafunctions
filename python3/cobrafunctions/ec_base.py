@@ -94,7 +94,7 @@ def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_r
 
 
 #Remove reactions without net flux
-def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapping_dict=None,protein_metabolite_prefix="prot",net_flux_fva=None,test_individual_reactions=True,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
+def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapping_dict=None,protein_metabolite_prefix="prot",net_flux_fva=None,test_individual_reactions=True,reactions_to_keep=[],fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
     from .netflux_variability import flux_variability_analysis_net_flux
     print("Removing blocked reactions from EC model with min_flux="+str(min_flux))
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites before removing blocked reactions")
@@ -132,8 +132,17 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
        print ("Reusing Net FluxFva")
     #Add reactions without net flux to the list to remove
     reactions_to_remove=[]        
-    for net_flux_id in net_flux_fva.index:
+    for net_flux_id in net_flux_fva.index:      
         if abs(net_flux_fva.loc[net_flux_id, "maximum"])<min_flux and abs(net_flux_fva.loc[net_flux_id, "minimum"])<min_flux:
+           #Check that reaction is not one that must be active to keep the model feasible 
+           tolerance=max(fva_solver_tolerance_feasibility,1e-8)
+           if net_flux_fva.loc[net_flux_id, "maximum"]< -1*tolerance: #This means that the reaction must carry a negative flux
+               if verbose:
+                  print(net_flux_id+" has a minimum flux of "+str(net_flux_fva.loc[net_flux_id, "minimum"])+" and a maximum flux of "+str(net_flux_fva.loc[net_flux_id, "maximum"])+", will not remove it because it must be active")
+               continue
+           if  net_flux_fva.loc[net_flux_id, "minimum"]>tolerance: #This means that reaction must carry a positibe flux
+               print(net_flux_id+" has a minimum flux of "+str(net_flux_fva.loc[net_flux_id, "minimum"])+" and a maximum flux of "+str(net_flux_fva.loc[net_flux_id, "maximum"])+", will not remove it because it must be active")
+               continue
            #Get the individual reactions in the net flux
            individual_rids=expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]+expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]
            reactions_to_remove+=individual_rids
@@ -141,6 +150,8 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
               print(net_flux_id+" "+str(net_flux_fva.loc[net_flux_id, "minimum"])+" "+str(net_flux_fva.loc[net_flux_id, "maximum"])+" "+str(individual_rids))  
     #Make sure there are no duplicate elements 
     reactions_to_remove=list(set(reactions_to_remove))
+    #Exclude reactions to keep
+    reactions_to_remove=[x for x in reactions_to_remove if x not in reactions_to_keep]
     print(str(len(reactions_to_remove))+" reactions to remove")
     reaction_objects_to_remove=[model.reactions.get_by_id(x) for x in reactions_to_remove]
     model.remove_reactions(reaction_objects_to_remove)
