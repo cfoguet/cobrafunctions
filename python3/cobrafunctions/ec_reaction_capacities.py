@@ -487,6 +487,46 @@ def get_net_reaction_bounds_from_gene_expression(
     return forward_UpperBound_df, reverse_UpperBound_df, usage_bounds_df, missing_genes
 
 
+def find_nearZeroVar_columns(df, uniqueCut=10, freqCut=95.0/10.0, verbose=False):
+    """
+    Drops columns (features) with near-zero variance from a DataFrame.
+    Adapted from the nearZeroVar function in the R caret package.
+    Only when both conditions are meet will columns be dropped
+    Parameters:
+        df        : pandas DataFrame where rows=samples, columns=features
+        freqCut   : cutoff for the ratio of the most common value to the
+                    second most common value (default: 95/5 = 19.0)
+        uniqueCut : cutoff for the percentage of distinct values out of the
+                    number of total samples (default: 10%)
+        verbose   : if True, prints flagged columns with their stats
+     
+    Returns:
+        df_filtered  : DataFrame with near-zero variance columns removed
+        cols_to_drop : list of dropped feature names
+        cols_to_keep : list of retained feature names
+        mask_to_keep : boolean mask (True = kept, False = dropped)
+    """
+    n_samples = len(df)
+    # --- Step 1: vectorised unique% across all columns at once ---
+    unique_pct = df.nunique() / n_samples * 100
+    # --- Step 2: only compute freq_ratio for columns that fail uniqueCut ---
+    candidates = unique_pct[unique_pct < uniqueCut].index
+    cols_to_drop = set()
+    for col in candidates:
+        col_counts = df[col].value_counts()
+        freq_ratio = (col_counts.iloc[0] / col_counts.iloc[1]
+                      if len(col_counts) > 1 else float('inf'))
+        if freq_ratio > freqCut:
+            cols_to_drop.add(col)
+            if verbose:
+                print(f"  [DROP] {col:<30} unique%={unique_pct[col]:.2f}%  freq_ratio={freq_ratio:.2f}")
+    cols_to_keep = [c for c in df.columns if c not in cols_to_drop]
+    #mask_to_keep = [c not in cols_to_drop for c in df.columns]
+    print(f"{len(cols_to_drop)} feature(s) with near-zero variance "
+          f"({len(cols_to_keep)} to be retained)")
+    return list(cols_to_drop), cols_to_keep
+
+
 # previous implementations 
 
 
