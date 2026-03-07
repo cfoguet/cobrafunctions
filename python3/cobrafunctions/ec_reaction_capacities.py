@@ -162,6 +162,7 @@ def get_enzyme_usage_bounds_from_gene_expression(
     reactions_to_omit=[],
     proteins_to_omit=[],
     usage_prot_reaction_prefix="usage_prot_",
+    prot_metabolite_prefix="prot_",
     verbose=False
 ):
     """
@@ -184,6 +185,7 @@ def get_enzyme_usage_bounds_from_gene_expression(
         List of protein IDs to exclude from calculations (default: [])
     usage_prot_reaction_prefix: str, optional
         Pattern used to named usage reactions
+    prot_metabolite_prefix: str, optional     Prefix of enzyme metabolites. Used to get proteins to omit from reaction IDs
     verbose : bool, optional
         If True, print detailed processing information (default: False)
 
@@ -212,15 +214,17 @@ def get_enzyme_usage_bounds_from_gene_expression(
         if rid in model.reactions:
             reaction = model.reactions.get_by_id(rid)
             proteins_to_omit += [
-                m.id.replace(usage_prot_reaction_prefix, "")
+                m.id.replace(prot_metabolite_prefix, "")
                 for m in reaction.metabolites
-                if m.id.startswith(usage_prot_reaction_prefix)
+                if m.id.startswith(prot_metabolite_prefix)
             ]
         elif verbose:
             print(f"Reaction {rid} to omit not in model")
 
     proteins_to_omit_set = set(proteins_to_omit)
-
+    if verbose and len(proteins_to_omit_set)>0:
+       #Print full list of proteins to omit
+       print(f"Omitting {len(proteins_to_omit_set)} proteins: {proteins_to_omit_set}") 
     # --- Collect metadata for each valid usage reaction ---
     # We build parallel lists then do all arithmetic at once via DataFrame ops.
     reaction_ids = []

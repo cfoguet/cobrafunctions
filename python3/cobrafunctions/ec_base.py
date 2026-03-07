@@ -667,7 +667,7 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
 #     return missing_genes
 
 
-def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],usage_prot_reaction_prefix="usage_prot_",verbose=True):
+def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],usage_prot_reaction_prefix="usage_prot_",prot_metabolite_prefix="prot_",verbose=True):
     #gene_expression_data can be a dict, series or data.frame (1 x n_genes)
     #Set enzyme usage bounds based on gene expression
     #Gene expression is converted to enzyme usage by multiplying by gene_expression_to_enzyme_factor
@@ -682,6 +682,7 @@ def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzy
     reactions_to_omit=reactions_to_omit,
     proteins_to_omit=proteins_to_omit,
     usage_prot_reaction_prefix=usage_prot_reaction_prefix,
+    prot_metabolite_prefix=prot_metabolite_prefix,
     verbose=verbose)
     
     if(len(usage_bounds_df.index)>1):
