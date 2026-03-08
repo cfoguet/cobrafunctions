@@ -422,7 +422,7 @@ def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_exp
             if forward_cols:
                 forward_sum = fluxes[forward_cols].sum(axis=1)
             else:
-                forward_sum = 0
+                forward_sum = pd.Series(0, index=fluxes.index) #This would be cases were the reaction is not in model
             if reverse_cols:
                 reverse_sum = fluxes[reverse_cols].sum(axis=1)
             else:

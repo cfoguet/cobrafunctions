@@ -367,7 +367,7 @@ def qMTA_get_optimization_target_fluxes_and_weights(
         target_measured_flux_weight = {}
     if fluxes_to_omit is None:
         fluxes_to_omit = []
-    if precision is not None:
+    if precision is not None or verbose:
       from .cobra_functions import round_sig
     # Convert inputs to dicts if they are not already
     if isinstance(reference_fluxes, pd.Series):
