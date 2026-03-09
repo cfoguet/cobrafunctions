@@ -658,7 +658,7 @@ def update_reaction_bounds(
     upper_bounds=None,
     copy_model=False,
     use_cplex_direct=False, #Note that when using this option True the bounds appearing in reaction.bounds will not be updated use caution when using this option
-    verbose=False
+    verbose=True
 ):
     """
     Update reaction bounds for models     
@@ -853,10 +853,9 @@ def _update_reaction_bounds_cplex(model, lower_bounds, upper_bounds, verbose):
     lp.variables.set_lower_bounds(reverse_lb_updates)
     lp.variables.set_upper_bounds(reverse_ub_updates)    
     total_updates = len(forward_lb_updates) + len(forward_ub_updates) + len(reverse_lb_updates) + len(reverse_ub_updates)
-    print(f"Updated bounds for {updated_count} reactions using CPLEX direct interface. \nWARNING: Values in the cobrapy model object have not been updated.")
     if verbose:
-              print(f"  ({total_updates} total variable bound updates: "
-              f"{len(forward_lb_updates)} forward_lb, {len(forward_ub_updates)} forward_ub, "
+              print(f"Updated bounds for {updated_count} reactions using CPLEX direct interface. WARNING: Values in the cobrapy model object have not been updated.")
+              print(f"{len(forward_lb_updates)} forward_lb, {len(forward_ub_updates)} forward_ub, "
               f"{len(reverse_lb_updates)} reverse_lb, {len(reverse_ub_updates)} reverse_ub)")
               if skipped_count > 0:
                  print(f"Skipped {skipped_count} reactions (not found in model)")    
