@@ -179,8 +179,53 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing blocked reactions")      
     return net_flux_fva, reactions_to_remove
 
+
+#Get the capacities of a reaction from usage reaction
+def get_net_reaction_bounds_from_protein_usage_bounds(ec_model,expanded_reaction_mapping_dict,net_reaction_id,prot_prefix="prot_",prot_usage_reaction_prefix="usage_prot_",verbose=False):
+    individual_reactions_forward=expanded_reaction_mapping_dict[net_reaction_id]["forward_reactions"]
+    individual_reactions_reverse=expanded_reaction_mapping_dict[net_reaction_id]["reverse_reactions"]
+    all_reactions=[ec_model.reactions.get_by_id(x) for x in individual_reactions_forward+individual_reactions_reverse]
+    upper_bound=0
+    lower_bound=0
+    for individual_reaction in all_reactions:
+         if individual_reaction.lower_bound!=0:
+            raise Exception("get_net_reaction_bounds_from_protein_usage_bounds only works for reactions where the lower bound  is 0")
+         individual_reaction_prot_metabolites=[met for met in individual_reaction.metabolites if met.id.startswith(prot_prefix) ]
+         #Special case if there are no proteins we use default bound 
+         if len(individual_reaction_prot_metabolites)==0:
+            local_bound=individual_reaction.upper_bound
+            local_bounds=[]
+         else: #Reaction actually has proteins
+            #Bound will be the -1*lower bound of usage reactions/ -1*coef in the reaction 
+            #If there are multiple proteins it will be the minimum
+            local_bounds=[]
+            for individual_reaction_prot_metabolite in individual_reaction_prot_metabolites:
+                #Get Coefficent 
+                prot_coef=individual_reaction.metabolites[individual_reaction_prot_metabolite]              
+                #Get usage reaction 
+                usage_reaction=[x for x in individual_reaction_prot_metabolite.reactions if x.id.startswith(prot_usage_reaction_prefix) ]
+                if(len(usage_reaction)!=1):
+                   raise Exception("There should be exactly one usage reaction for each protein"+usage_reaction)
+                usage_reaction=usage_reaction[0]
+                local_bounds.append(usage_reaction.lower_bound/prot_coef)
+            local_bound=min(local_bounds)
+         if  individual_reaction.id in individual_reactions_forward:
+                upper_bound+=local_bound
+         elif individual_reaction.id in individual_reactions_reverse:
+                lower_bound+=-local_bound
+         #If verbose print the list of proteins and bounds
+         if verbose:
+            print("Individual reaction: "+individual_reaction.id)
+            print("\tProteins: "+str(individual_reaction_prot_metabolites))
+            print("\tLocal bounds: "+str(local_bounds))
+            print("\tMin Local Bound: "+str(local_bound))
+    if verbose:
+       print("\nFinal bound for "+net_reaction_id+": "+str(lower_bound)+" "+str(upper_bound))
+    return {"lower_bound":lower_bound,"upper_bound":upper_bound}
+
+
 #Simplyfy EC model
-def simplify_ec_model(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mapping_dict=None,usage_reactions_prefix="usage_prot_",net_flux_fva=None,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
+def simplify_ec_model_from_net_flux_fva(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mapping_dict=None,usage_reactions_prefix="usage_prot_",net_flux_fva=None,fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
     #Builds a simplified model by contracting all the expanded reactions and setting the bounds to the bounds estimated by net flux variabiliaty 
     #This is pointless unless gene expression has been used to set protein constraints
     #WARNING: This doesn't fully encapsulate the ec model functionality as it can't handle competitions between reactions for same enzymes
@@ -205,7 +250,9 @@ def simplify_ec_model(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mappi
                   isoenzyme_reaction_pattern="_EXP_\\d+",
                   patterns_to_ommit=["^usage_prot_"],
                   verbose=False)
-    if net_flux_fva==None:
+    if isinstance(net_flux_fva, pd.DataFrame):
+      print ("Reusing Net FluxFva")
+    else:
       net_flux_fva=flux_variability_analysis_net_flux( model=model,
          expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,
          flux_list= list(expanded_reaction_mapping_dict.keys()),
@@ -214,8 +261,6 @@ def simplify_ec_model(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mappi
          solver_tolerance_feasibility= fva_solver_tolerance_feasibility,
          solver_tolerance_optimality= fva_solver_tolerance_optimality,
          verbose=verbose)
-    else:
-       print ("Reusing Net FluxFva")
     #Remove usage reactions and protein metabolites 
     usage_reactions=[x for x in model.reactions if x.id.startswith(usage_reactions_prefix)]
     protein_metabolites=[]
@@ -283,6 +328,7 @@ def simplify_ec_model(ec_model,min_flux=1e-8,precision=8,expanded_reaction_mappi
 def add_net_flux_reporter_reactions(
     model: "Model",
     expanded_reaction_mapping_dict: Dict[str, Dict[str, List[str]]],
+    flux_list: list = None,
     reporter_reaction_prefix: str ="netflux__",
     copy_model: bool = True,
     only_add_in_multireaction_fluxes: bool = True,
@@ -351,13 +397,10 @@ def add_net_flux_reporter_reactions(
     # Check if model already has reporter reactions
     #existing_reporters = [rxn.id for rxn in model.reactions if rxn.id.startswith(reporter_reaction_prefix)]
     existing_reporters = [met.id for met in model.metabolites if met.id.startswith("reporter_met_")]
-    if existing_reporters:
-        raise ValueError(
-            f"Model already contains reporter metabolites: {existing_reporters}. "
-            "Cannot add net flux reporters to a model that already has them."
-        )
+    if not flux_list:
+       flux_list=expanded_reaction_mapping_dict.keys() 
     reporter_rxns_list=[]
-    for net_flux_id in expanded_reaction_mapping_dict.keys():
+    for net_flux_id in flux_list:
         forward_reactions = expanded_reaction_mapping_dict[net_flux_id]["forward_reactions"]
         reverse_reactions = expanded_reaction_mapping_dict[net_flux_id]["reverse_reactions"]
         n_reactions=len(forward_reactions)+len(reverse_reactions)
@@ -368,7 +411,10 @@ def add_net_flux_reporter_reactions(
         reporter_met = Metabolite(reporter_met_id)
         reporter_met.name = f"Reporter metabolite for {net_flux_id}"
         reporter_met.compartment = "c"  # Default to cytosol
-        
+        if reporter_met.id in existing_reporters:
+          raise ValueError(
+            f"Model already contains reporter metabolites: {existing_reporters}. "
+            "Cannot add net flux reporters to a reaction that already has them.")    
         # Add reporter metabolite to forward reactions (produced)
         reporter_ub=0 #Starting Value, will be increase by other reactions.
         reporter_lb=0 #Starting Value, will be increase by other reactions. 
@@ -395,7 +441,6 @@ def add_net_flux_reporter_reactions(
         reporter_rxns_list.append(reporter_rxn)
     # Add reporter reactions to model
     model.add_reactions(reporter_rxns_list)
-    
     return model
 
 
