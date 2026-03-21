@@ -113,12 +113,15 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
                   isoenzyme_reaction_pattern="_EXP_\\d+",
                   patterns_to_ommit=["^usage_prot_"],
                   verbose=False)
-           if test_individual_reactions:
-              #You might still want to test individual reactions
-              if  verbose:
-                  print("Adding individual reactions to the list")
-              for reaction in  model.reactions:
-                  expanded_reaction_mapping_dict[reaction.id+"__individual"]={"forward_reactions":[reaction.id],"reverse_reactions": []}
+    else:
+       expanded_reaction_mapping_dict=copy.deepcopy(expanded_reaction_mapping_dict) #To make sure the oirginal dict is not changed
+    if test_individual_reactions:
+        #You might still want to test individual reactions
+        if  verbose:
+            print("Adding individual reactions to the list")
+        for reaction in  model.reactions:
+            if "usage_prot_" not in reaction.id:
+                expanded_reaction_mapping_dict[reaction.id+"__individual"]={"forward_reactions":[reaction.id],"reverse_reactions": []}
     if net_flux_fva==None:
       net_flux_fva=flux_variability_analysis_net_flux( model=model,
          expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,
@@ -205,7 +208,7 @@ def get_net_reaction_bounds_from_protein_usage_bounds(ec_model,expanded_reaction
                 #Get usage reaction 
                 usage_reaction=[x for x in individual_reaction_prot_metabolite.reactions if x.id.startswith(prot_usage_reaction_prefix) ]
                 if(len(usage_reaction)!=1):
-                   raise Exception("There should be exactly one usage reaction for each protein"+usage_reaction)
+                   raise Exception("There should be exactly one usage reaction for each protein"+str(usage_reaction))
                 usage_reaction=usage_reaction[0]
                 local_bounds.append(usage_reaction.lower_bound/prot_coef)
             local_bound=min(local_bounds)
@@ -712,11 +715,12 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
 #     return missing_genes
 
 
-def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,reactions_to_omit=[],proteins_to_omit=[],usage_prot_reaction_prefix="usage_prot_",prot_metabolite_prefix="prot_",verbose=True):
+def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzyme_kcat_scaling_factor_dict,gene_expression_to_enzyme_factor=1,no_expression_threshold=0,reactions_to_omit=[],proteins_to_omit=[],usage_prot_reaction_prefix="usage_prot_",prot_metabolite_prefix="prot_",verbose=True):
     #gene_expression_data can be a dict, series or data.frame (1 x n_genes)
     #Set enzyme usage bounds based on gene expression
     #Gene expression is converted to enzyme usage by multiplying by gene_expression_to_enzyme_factor
     #enzyme_kcat_scaling_factor_dict is a dictionary with the kcat scaling factor for each enzyme used when building the ec model
+    #no_expression_threshold= expression under this value will be set to 0
     from .ec_reaction_capacities import get_enzyme_usage_bounds_from_gene_expression
     
     usage_bounds_df, reaction_enzyme_dict, missing_genes=get_enzyme_usage_bounds_from_gene_expression(
@@ -734,8 +738,18 @@ def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzy
       raise Exception("Input should be only one sample")  
     
     usage_bounds_dict=usage_bounds_df.iloc[0].to_dict()
+    
+    low_expression_genes = [gene for gene, value in gene_expression_data.items() if value < no_expression_threshold and gene in model.genes]
+    if verbose and len(low_expression_genes)>0: 
+       print("Found "+str(len(low_expression_genes))+" genes with expression under "+str(no_expression_threshold)) 
     for usage_reaction_id in usage_bounds_dict:
-        model.reactions.get_by_id(usage_reaction_id).lower_bound=usage_bounds_dict[usage_reaction_id]
+        usage_reaction=model.reactions.get_by_id(usage_reaction_id)
+        if all(gene.id in low_expression_genes for gene in usage_reaction.genes):
+           usage_reaction.bounds=(0,0)
+           if verbose:
+              print("Blocking "+usage_reaction.id+" as gene expression for "+" ".join([gene.id for gene in usage_reaction.genes])+" is under "+str(no_expression_threshold))
+        else:
+           usage_reaction.lower_bound=usage_bounds_dict[usage_reaction_id]
     return missing_genes
 
 
@@ -743,6 +757,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 	model,
 	gene_expression_data,
 	enzyme_kcat_scaling_factor_dict,
+    no_expression_threshold=0,
 	min_factor=0,
 	initial_ratio_estimate=1,
 	tol=1e-6,
@@ -767,7 +782,8 @@ def find_lowest_feasible_enzyme_expression_factor(
 		set_enzyme_usage_bounds_from_gene_expression(
 			test_model,
 			gene_expression_data,
-			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+			no_expression_threshold=no_expression_threshold,
+            enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
 			gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit, verbose=False #Otherwise it will print a lot of lines 
 		)
 		solution = test_model.optimize()
@@ -789,6 +805,7 @@ def find_lowest_feasible_enzyme_expression_factor(
 			test_model,
 			gene_expression_data,
 			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+            no_expression_threshold=no_expression_threshold,
 			gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit,
             verbose=False #Otherwise it will print a lot of lines 
 		)
