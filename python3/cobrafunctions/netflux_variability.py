@@ -175,14 +175,14 @@ def flux_variability_analysis_net_flux(
     import time
     
     # Check that the model doesn't already contain reporter metabolites
-    existing_reporter_mets = [met.id for met in model.metabolites if met.id.startswith("reporter_met_")]
-    
-    if existing_reporter_mets:
-        raise ValueError(
-            f"Model already contains reporter metabolites for net fluxes: {existing_reporter_mets}. "
-            "Should not run flux_variability_analysis_net_flux on a model with reporters. "
-            "Use the original model without reporters."
-        )
+    #existing_reporter_mets = [met.id for met in model.metabolites if met.id.startswith("reporter_met_")]
+    #
+    #if existing_reporter_mets:
+    #    raise ValueError(
+    #        f"Model already contains reporter metabolites for net fluxes: {existing_reporter_mets}. "
+    #        "Should not run flux_variability_analysis_net_flux on a model with reporters. "
+    #        "Use the original model without reporters."
+    #    )
     
     # Auto-generate mapping if not provided
     if expanded_reaction_mapping_dict is None:
