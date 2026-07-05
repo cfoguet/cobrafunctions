@@ -95,7 +95,7 @@ def set_reaction_ratio(
     rxn_id_2: str,
     ratio: Union[float, tuple[float, float]],
     constraint_name: str,
-    ratio_reaction_upper_bound: float= 1000,
+    ratio_reaction_bound: float= 1000,
 
 ) -> None:
     """
@@ -154,7 +154,7 @@ def set_reaction_ratio(
     rxn_2 = model.reactions.get_by_id(rxn_id_2)
 
     #Raise exception if either can be reversible
-    if rxn_1.lower_bound<0 or rxn_2.lower_bound<0:
+    if (rxn_1.lower_bound<0 or rxn_2.lower_bound<0) and flag_ratio_single_value==False:
       #Technically would also work as along as both were only negative
       raise Exception("This function only works for irreversible reactions. Please make sure both reactions have a lower bound of 0 or higher.")
 
@@ -195,7 +195,7 @@ def set_reaction_ratio(
             upper_rxn_id, lower_rxn_id,
             lower, upper,
             constraint_name,
-             ratio_reaction_upper_bound=ratio_reaction_upper_bound
+             ratio_reaction_bound=ratio_reaction_bound
         )
 
 
@@ -214,7 +214,7 @@ def _add_ratio(
     lower: float,
     upper: float,
     constraint_name: str,
-    ratio_reaction_upper_bound: float,
+    ratio_reaction_bound: float,
 ) -> None:
     """Create reporter metabolites and ratio reactions from scratch."""
 
@@ -247,7 +247,7 @@ def _add_ratio(
         upper_rxn_id,
         name=f"{constraint_name} upper ratio ({upper})",
         lower_bound=0.0,
-        upper_bound=ratio_reaction_upper_bound#cobra.Configuration().upper_bound,
+        upper_bound=ratio_reaction_bound#cobra.Configuration().upper_bound,
     )
     upper_rxn.add_metabolites({rep1: -upper, rep2: -1.0})
     model.add_reactions([upper_rxn])
@@ -259,13 +259,16 @@ def _add_ratio(
             lower_rxn_id,
             name=f"{constraint_name} lower ratio ({lower})",
             lower_bound=0.0,
-            upper_bound=ratio_reaction_upper_bound##cobra.Configuration().upper_bound,
+            upper_bound=ratio_reaction_bound##cobra.Configuration().upper_bound,
         )
         lower_rxn.add_metabolites({rep1: -lower, rep2: -1.0})
         model.add_reactions([lower_rxn])
     else:
         #Rename the single reaction
         upper_rxn.name=f"{constraint_name} ratio ({upper})"
+        #Ratio can be reversible
+        upper_rxn.bounds=(-1*ratio_reaction_bound,ratio_reaction_bound)
+        
     print(
         f"Added '{constraint_name}': "
         f"{lower} <= flux({rxn_1.id}) / flux({rxn_2.id}) <= {upper}"
