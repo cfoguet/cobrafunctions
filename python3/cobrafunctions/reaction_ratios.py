@@ -96,6 +96,7 @@ def set_reaction_ratio(
     ratio: Union[float, tuple[float, float]],
     constraint_name: str,
     ratio_reaction_bound: float= 1000,
+    verbose: bool = True
 
 ) -> None:
     """
@@ -185,7 +186,7 @@ def set_reaction_ratio(
             rep1_id, rep2_id,
             upper_rxn_id, lower_rxn_id,
             lower, upper,
-            constraint_name
+            constraint_name,verbose=verbose
         )
     else:
         _add_ratio(
@@ -195,7 +196,7 @@ def set_reaction_ratio(
             upper_rxn_id, lower_rxn_id,
             lower, upper,
             constraint_name,
-             ratio_reaction_bound=ratio_reaction_bound
+             ratio_reaction_bound=ratio_reaction_bound,verbose=verbose
         )
 
 
@@ -215,6 +216,7 @@ def _add_ratio(
     upper: float,
     constraint_name: str,
     ratio_reaction_bound: float,
+    verbose: bool = True
 ) -> None:
     """Create reporter metabolites and ratio reactions from scratch."""
 
@@ -269,10 +271,11 @@ def _add_ratio(
         #Ratio can be reversible
         upper_rxn.bounds=(-1*ratio_reaction_bound,ratio_reaction_bound)
         
-    print(
-        f"Added '{constraint_name}': "
-        f"{lower} <= flux({rxn_1.id}) / flux({rxn_2.id}) <= {upper}"
-    )
+    if verbose:
+       print(
+           f"Added '{constraint_name}': "
+           f"{lower} <= flux({rxn_1.id}) / flux({rxn_2.id}) <= {upper}"
+       )
 
 
 def _update_ratio(
@@ -284,6 +287,7 @@ def _update_ratio(
     lower: float,
     upper: float,
     constraint_name: str,
+    verbose: bool = True
 ) -> None:
     """Update stoichiometry of existing ratio reactions to new bounds."""
 
@@ -300,17 +304,18 @@ def _update_ratio(
         lower_rxn.add_metabolites({rep1: -lower, rep2: -1.0}, combine=False)
         lower_rxn.name = f"{constraint_name} lower ratio ({lower})"
 
-    print(
-        f"Updated '{constraint_name}': "
-        f"{lower} <= flux(rxn_1) / flux(rxn_2) <= {upper}"
-    )
+    if verbose:
+       print(
+           f"Updated '{constraint_name}': "
+           f"{lower} <= flux(rxn_1) / flux(rxn_2) <= {upper}"
+       )
 
 
 # --------------------------------------------------------------------------- #
 #  Utility: remove a ratio constraint entirely                                 #
 # --------------------------------------------------------------------------- #
 
-def remove_reaction_ratio(model: cobra.Model, constraint_name: str) -> None:
+def remove_reaction_ratio(model: cobra.Model, constraint_name: str, verbose: bool = True) -> None:
     """
     Remove all model objects (reporter metabolites + ratio reactions) that
     were created by :func:`enforce_reaction_ratio` for *constraint_name*.
@@ -350,4 +355,5 @@ def remove_reaction_ratio(model: cobra.Model, constraint_name: str) -> None:
             rxn.add_metabolites({met: 0.0}, combine=False)  # zero coefficient → dropped
         model.remove_metabolites([met])
 
-    print(f"[remove_reaction_ratio] Removed constraint '{constraint_name}'.")
+    if verbose:
+       print(f"[remove_reaction_ratio] Removed constraint '{constraint_name}'.")
