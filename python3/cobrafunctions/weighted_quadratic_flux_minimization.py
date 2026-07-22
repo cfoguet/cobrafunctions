@@ -2,6 +2,9 @@ import pandas as pd
 from cobra.util import solver as sutil
 from optlang.symbolics import Zero as optlang_Zero, add #, Pow
 
+from cobra.exceptions import OptimizationError
+
+
 try:
   from cplex import Cplex
 except:
@@ -765,3 +768,192 @@ def add_weighted_difference_minimization(model, target_fluxes={},target_fluxes_w
     return model 
 
 """
+
+
+
+
+def solve_qp_model(qp_model, params={}, cold_start=False):
+    """
+    Configure optlang / CPLEX solver settings on `qp_model` from a dict and
+    then optimize, trying multiple QP methods in order until one succeeds.
+
+    Any parameter whose key is absent from `params` is simply never set,
+    i.e. it's left at whatever the solver's current/default value is.
+
+    Parameters
+    ----------
+    qp_model : cobra.Model
+        Model to configure and solve. Must already have `.solver` set.
+    params : dict, optional
+        Recognized keys (all optional):
+
+        General (optlang) parameters
+            solver_qp_methods              list[str] - QP methods to try,
+                                            in order. If omitted, optimize()
+                                            is called once without touching
+                                            qp_method at all.
+            solver_tolerances_feasibility  float
+            solver_tolerances_optimality   float
+            solver_verbosity               int
+            solver_presolve                True / False / "auto"
+
+        CPLEX-only parameters (only applied if the current solver is CPLEX;
+        optlang has no bindings for these, so they're set on the raw
+        `qp_model.solver.problem`):
+            cplex_n_threads
+            cplex_emphasis_numerical
+            cplex_scaling
+            cplex_network_netfind
+            cplex_network_pricing
+            cplex_network_tol_feasibility
+            cplex_network_tol_optimality
+            cplex_barrier_crossover
+            cplex_barrier_ordering
+            cplex_barrier_startalg
+            cplex_barrier_convergetol
+    cold_start : bool, default False
+        CPLEX-only. If True, disables the advanced (warm) start basis
+        (parameters.advance = 0), forcing a solve from scratch. If False,
+        lets CPLEX reuse a previous basis (parameters.advance = 1).
+        
+    Example Params:
+        {
+        "solver_qp_methods": ["network", "barrier", "primal"],
+        "solver_tolerances_feasibility": 1e-7,
+        "solver_tolerances_optimality": 1e-6,
+        "solver_verbosity": 2,
+        "solver_presolve": False,
+        "cplex_n_threads": 1,
+        "cplex_emphasis_numerical": 0,
+        "cplex_scaling": 0,
+        "cplex_network_netfind": 1,
+        "cplex_network_pricing": 0,
+        "cplex_network_tol_feasibility": 1e-7,
+        "cplex_network_tol_optimality": 1e-6,
+        "cplex_barrier_crossover": 0,
+        "cplex_barrier_ordering": 0,
+        "cplex_barrier_startalg": 1,
+        "cplex_barrier_convergetol": 1e-6,
+    }
+
+
+    Returns
+    -------
+    sol : solution object
+    stats : str or Exception. "optimal" if a solution was found, otherwise the last status /
+        OptimizationError encountered.
+
+        
+    """
+    # ---- Validate that every key in params is a recognized option ----
+    known_keys = {
+        "solver_qp_methods",
+        "solver_tolerances_feasibility",
+        "solver_tolerances_optimality",
+        "solver_verbosity",
+        "solver_presolve",
+        "cplex_n_threads",
+        "cplex_emphasis_numerical",
+        "cplex_scaling",
+        "cplex_network_netfind",
+        "cplex_network_pricing",
+        "cplex_network_tol_feasibility",
+        "cplex_network_tol_optimality",
+        "cplex_barrier_crossover",
+        "cplex_barrier_ordering",
+        "cplex_barrier_startalg",
+        "cplex_barrier_convergetol",
+    }
+    unknown_keys = set(params) - known_keys
+    if unknown_keys:
+        raise ValueError(
+            "Unrecognized solver parameter(s): " + ", ".join(sorted(unknown_keys))
+        )
+
+    # ---- General optlang configuration ----
+    if "solver_tolerances_feasibility" in params:
+        qp_model.solver.configuration.tolerances.feasibility = params["solver_tolerances_feasibility"]
+    if "solver_tolerances_optimality" in params:
+        qp_model.solver.configuration.tolerances.optimality = params["solver_tolerances_optimality"]
+    if "solver_verbosity" in params:
+        qp_model.solver.configuration.verbosity = params["solver_verbosity"]
+    if "solver_presolve" in params:
+        qp_model.solver.configuration.presolve = params["solver_presolve"]
+
+    # ---- Identify current solver ----
+    current_solver = sutil.interface_to_str(qp_model.problem)
+    print("Current Solver is " + current_solver)
+    solver_is_cplex = "cplex" in current_solver.lower()
+
+    if solver_is_cplex:
+        if "cplex_n_threads" in params:
+            qp_model.solver.problem.parameters.threads.set(params["cplex_n_threads"])
+        if "cplex_emphasis_numerical" in params:
+            qp_model.solver.problem.parameters.emphasis.numerical.set(params["cplex_emphasis_numerical"])
+        if "cplex_scaling" in params:
+            qp_model.solver.problem.parameters.read.scale.set(params["cplex_scaling"])
+        if "cplex_network_netfind" in params:
+            qp_model.solver.problem.parameters.network.netfind.set(params["cplex_network_netfind"])
+        if "cplex_network_pricing" in params:
+            qp_model.solver.problem.parameters.network.pricing.set(params["cplex_network_pricing"])
+        if "cplex_network_tol_feasibility" in params:
+            qp_model.solver.problem.parameters.network.tolerances.feasibility.set(params["cplex_network_tol_feasibility"])
+        if "cplex_network_tol_optimality" in params:
+            qp_model.solver.problem.parameters.network.tolerances.optimality.set(params["cplex_network_tol_optimality"])
+        if "cplex_barrier_crossover" in params:
+            qp_model.solver.problem.parameters.barrier.crossover.set(params["cplex_barrier_crossover"])
+        if "cplex_barrier_ordering" in params:
+            qp_model.solver.problem.parameters.barrier.ordering.set(params["cplex_barrier_ordering"])
+        if "cplex_barrier_startalg" in params:
+            qp_model.solver.problem.parameters.barrier.startalg.set(params["cplex_barrier_startalg"])
+        if "cplex_barrier_convergetol" in params:
+            qp_model.solver.problem.parameters.barrier.convergetol.set(params["cplex_barrier_convergetol"])
+
+        # Cold start vs warm start (CPLEX "advance" basis parameter)
+        qp_model.solver.problem.parameters.advance.set(0 if cold_start else 1)
+
+    # ---- Try QP methods in order until an optimal solution is found ----
+    # If the key is missing, don't touch qp_method at all — just optimize once.
+    qp_methods = params["solver_qp_methods"] if "solver_qp_methods" in params else [None]
+
+    status = None
+    objective_value = None
+    for solver_qp_method in qp_methods:
+        if solver_qp_method is not None and qp_model.solver.configuration.qp_method != solver_qp_method:
+            qp_model.solver.configuration.qp_method = solver_qp_method
+
+        try:
+            sol = qp_model.optimize()
+            status = sol.status
+            objective_value = sol.objective_value
+        except OptimizationError as error:
+            status = error
+            objective_value =None
+            sol=None
+
+        print("\t Objective Value:" + str(status) + " " + str(objective_value) + " with " + str(solver_qp_method))
+
+        if status == "optimal":
+            break
+
+    return sol, status
+
+#Example Params
+#    {
+#        "solver_qp_methods": ["network", "barrier", "primal"],
+#        "solver_tolerances_feasibility": 1e-7,
+#        "solver_tolerances_optimality": 1e-6,
+#        "solver_verbosity": 2,
+#        "solver_presolve": False,
+#        "cplex_n_threads": 1,
+#        "cplex_emphasis_numerical": 0,
+#        "cplex_scaling": 0,
+#        "cplex_network_netfind": 1,
+#        "cplex_network_pricing": 0,
+#        "cplex_network_tol_feasibility": 1e-7,
+#        "cplex_network_tol_optimality": 1e-6,
+#        "cplex_barrier_crossover": 0,
+#        "cplex_barrier_ordering": 0,
+#        "cplex_barrier_startalg": 1,
+#        "cplex_barrier_convergetol": 1e-6,
+#    }
