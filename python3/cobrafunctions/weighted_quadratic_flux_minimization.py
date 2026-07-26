@@ -863,6 +863,7 @@ def solve_qp_model(qp_model, params={}, cold_start=False):
         "cplex_barrier_ordering",
         "cplex_barrier_startalg",
         "cplex_barrier_convergetol",
+        "cplex_timelimit"
     }
     unknown_keys = set(params) - known_keys
     if unknown_keys:
@@ -908,7 +909,8 @@ def solve_qp_model(qp_model, params={}, cold_start=False):
             qp_model.solver.problem.parameters.barrier.startalg.set(params["cplex_barrier_startalg"])
         if "cplex_barrier_convergetol" in params:
             qp_model.solver.problem.parameters.barrier.convergetol.set(params["cplex_barrier_convergetol"])
-
+        if "cplex_timelimit" in params:
+            qp_model.solver.problem.parameters.timelimit.set(params["cplex_timelimit"])
         # Cold start vs warm start (CPLEX "advance" basis parameter)
         qp_model.solver.problem.parameters.advance.set(0 if cold_start else 1)
 
@@ -956,4 +958,5 @@ def solve_qp_model(qp_model, params={}, cold_start=False):
 #        "cplex_barrier_ordering": 0,
 #        "cplex_barrier_startalg": 1,
 #        "cplex_barrier_convergetol": 1e-6,
+#        "cplex_timelimit":1000
 #    }
