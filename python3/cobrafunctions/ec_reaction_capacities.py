@@ -362,14 +362,14 @@ def get_net_reaction_bounds_from_gene_expression(
         print(
             "Building default expanded_reaction_mapping_dict with "
             "reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ "
-            "and patterns_to_ommit=[^usage_prot_]"
+            "and patterns_to_omit=[^usage_prot_]"
         )
         from .ec_base import get_ec_expanded_reaction_mapping
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model,
             reverse_reaction_pattern="_REV",
             isoenzyme_reaction_pattern="_EXP_\\d+",
-            patterns_to_ommit=["^usage_prot_"],
+            patterns_to_omit=["^usage_prot_"],
             verbose=False,
         )
 
@@ -880,14 +880,14 @@ def find_nearZeroVar_columns(df, uniqueCut=10, freqCut=95.0/10.0, verbose=False)
 #             print("\nNo mapping dict provided - generating default mapping...")
 #         print("Building default expanded_reaction_mapping_dict with "
 #               "reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ "
-#               "and patterns_to_ommit=[^usage_prot_]")
+#               "and patterns_to_omit=[^usage_prot_]")
         
 #         from .ec_base import get_ec_expanded_reaction_mapping
 #         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
 #             model,
 #             reverse_reaction_pattern="_REV",
 #             isoenzyme_reaction_pattern="_EXP_\\d+",
-#             patterns_to_ommit=["^usage_prot_"],
+#             patterns_to_omit=["^usage_prot_"],
 #             verbose=False
 #         )
 #         mapping_dict_includes_both_directions = True

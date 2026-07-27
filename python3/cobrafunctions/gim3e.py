@@ -342,7 +342,7 @@ def integrate_omics_gim3e_and_remove(metabolic_model,gene_expression_file,fracti
          print(gene_expression_model.optimize(),"max objective" , abs_max_objective)
          #print "max objective" , abs_max_objective
      
-     mapping_dict, reverse_reactions=get_ec_expanded_reaction_mapping(gene_expression_model,reverse_reaction_pattern="_reverse",isoenzyme_reaction_pattern="IGNORE_THIS",patterns_to_ommit=["^usage_prot_"],verbose=False)
+     mapping_dict, reverse_reactions=get_ec_expanded_reaction_mapping(gene_expression_model,reverse_reaction_pattern="_reverse",isoenzyme_reaction_pattern="IGNORE_THIS",patterns_to_omit=["^usage_prot_"],verbose=False)
      reaction_list=[x.id for x in metabolic_model.reactions]
      fva_pandas=flux_variability_analysis_net_flux(model=gene_expression_model,expanded_reaction_mapping_dict=mapping_dict,flux_list=reaction_list,fraction_of_optimum=1/gim3e_fraction_optimum,verbose=True)
      fva={}

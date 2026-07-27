@@ -20,7 +20,7 @@ from cobra.util import solver as sutil
 
 
 
-def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",patterns_to_ommit=["^usage_prot_"],verbose=True):
+def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",patterns_to_omit=["^usage_prot_"],verbose=True):
     #The function aims to find all the forward and reverse reactions expanded reactions
     #For example for a reaction A + B <=> C catalyzed by two isoenzymes E1 and E2
     #We will have the following reactions in the model
@@ -40,13 +40,13 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     rev_regex = re.compile(reverse_reaction_pattern)
     if verbose:
        print("Reverse reaction pattern regex: "+reverse_reaction_pattern)
-    #Regex for patterns to ommit. Merge them into a single regex
-    if len(patterns_to_ommit)>0:
-       ommit_pattern_regex = re.compile("|".join(patterns_to_ommit))
+    #Regex for patterns to omit. Merge them into a single regex
+    if len(patterns_to_omit)>0:
+       omit_pattern_regex = re.compile("|".join(patterns_to_omit))
        if verbose:
-          print("Ommitting reactions matching patterns: "+str(patterns_to_ommit))
+          print("Omitting reactions matching patterns: "+str(patterns_to_omit))
     else:
-       ommit_pattern_regex = None
+       omit_pattern_regex = None
     
     #Initialize mapping dictionary
     mapping_dict={}
@@ -57,9 +57,9 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     for reaction in model.reactions:
         base_reaction_id=reaction.id
         reverse_reaction_flag=False
-        #Skip reactions matching ommit patterns
-        if ommit_pattern_regex is not None:
-           if ommit_pattern_regex.search(base_reaction_id):
+        #Skip reactions matching omit patterns
+        if omit_pattern_regex is not None:
+           if omit_pattern_regex.search(base_reaction_id):
                continue
         #Get Base Reaction ID by removing isoenzyme and reverse reaction patterns        
         if isoenzyme_reaction_regex.search(base_reaction_id):
@@ -93,6 +93,71 @@ def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_r
     return base_reaction_id
 
 
+def get_equation_from_base_reaction_id(ec_model,base_reaction_id,include_compartment=True,expanded_reaction_mapping_dict=None,metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "]):
+    #Works like get_equation from cobrafunctions but tailored to ec_models
+    #metabolite_patterns_to_omit will omit metabolites matching name or id any of the provided patterns
+    #Build pattern to test for metabolites to omit
+    if len(metabolite_patterns_to_omit)>0:
+         omit_pattern_regex = re.compile("|".join(metabolite_patterns_to_omit))
+    else:
+         omit_pattern_regex=None
+    if expanded_reaction_mapping_dict is None:
+       expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
+                  model, 
+                  reverse_reaction_pattern="_REV", 
+                  isoenzyme_reaction_pattern="_EXP_\\d+",
+                  patterns_to_omit=["^usage_prot_"],
+                  verbose=False)
+    if len(expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"])>0:
+        reference_reaction=expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"][0]
+        flip_reaction=False
+    elif  len(expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"])>0:
+        reference_reaction=expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"][0]
+        flip_reaction=True #Products will be considered substrates
+    else:
+        raise Exception("No reactions found for"+base_reaction_id)
+    
+    reference_reaction_object=ec_model.reactions.get_by_id(reference_reaction)
+    substrate_list=[]
+    product_list=[]
+    for metabolite in reference_reaction_object.metabolites:
+        #Test of the metabolite matches any of the patterns for omit
+        if omit_pattern_regex is not None:
+           if omit_pattern_regex.search(metabolite.id) or  omit_pattern_regex.search(metabolite.name):
+               continue
+        coef=reference_reaction_object.metabolites[metabolite]
+        met_name=metabolite.name.strip()
+        if include_compartment and len(metabolite.compartment)>0: 
+           met_name+="["+metabolite.compartment+"]"
+        if(flip_reaction): coef=-1*coef
+        if coef<0:
+           if coef!=-1:
+              coef_str=str(-1*coef)+" "
+           else:
+              coef_str=""  
+           substrate_list.append(coef_str+met_name)
+        else: #Product
+           if coef!=1:
+              coef_str=str(coef)+" "
+           else:
+              coef_str=""  
+           product_list.append(coef_str+met_name)
+    #Check if the reaction is reversible
+    if (reference_reaction_object.lower_bound<0 and reference_reaction_object.upper_bound>0) or (len(expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"])>0 and len(expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"])>0):
+      #reaction_is_reversible
+      arrow_str=" <=> "
+    else:
+      arrow_str=" --> "
+      #reaction is irreversible
+    #Assemble final reaction string
+    substrate_str=" + ".join(substrate_list)
+    product_str=" + ".join(product_list)
+
+    reaction_str=substrate_str+arrow_str+product_str
+    reaction_str=reaction_str.strip() #Remove whitespace from begining and end if any
+    return(reaction_str) 
+
+
 #Remove reactions without net flux
 def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapping_dict=None,protein_metabolite_prefix="prot",net_flux_fva=None,test_individual_reactions=True,reactions_to_keep=[],fva_processes=None,fva_solver_tolerance_feasibility=None,fva_solver_tolerance_optimality=None,verbose=False):
     from .netflux_variability import flux_variability_analysis_net_flux
@@ -106,12 +171,12 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing reactions with 0,0 bounds")
     if expanded_reaction_mapping_dict is None:
            if verbose:
-              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_omit=[^usage_prot_]")
            expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
                   model, 
                   reverse_reaction_pattern="_REV", 
                   isoenzyme_reaction_pattern="_EXP_\\d+",
-                  patterns_to_ommit=["^usage_prot_"],
+                  patterns_to_omit=["^usage_prot_"],
                   verbose=False)
     else:
        expanded_reaction_mapping_dict=copy.deepcopy(expanded_reaction_mapping_dict) #To make sure the oirginal dict is not changed
@@ -246,12 +311,12 @@ def simplify_ec_model_from_net_flux_fva(ec_model,min_flux=1e-8,precision=8,expan
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites after removing reactions with 0,0 bounds")
     if expanded_reaction_mapping_dict is None:
            if verbose:
-              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+              print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_omit=[^usage_prot_]")
            expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
                   model, 
                   reverse_reaction_pattern="_REV", 
                   isoenzyme_reaction_pattern="_EXP_\\d+",
-                  patterns_to_ommit=["^usage_prot_"],
+                  patterns_to_omit=["^usage_prot_"],
                   verbose=False)
     if isinstance(net_flux_fva, pd.DataFrame):
       print ("Reusing Net FluxFva")

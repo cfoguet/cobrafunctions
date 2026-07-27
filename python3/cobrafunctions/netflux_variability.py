@@ -188,12 +188,12 @@ def flux_variability_analysis_net_flux(
     if expanded_reaction_mapping_dict is None:
         from .ec_base import get_ec_expanded_reaction_mapping
         if verbose:
-            print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_ommit=[^usage_prot_]")
+            print("Building default expanded_reaction_mapping_dict with reverse_reaction_pattern=_REV, isoenzyme_reaction_pattern=_EXP_\\d+ and patterns_to_omit=[^usage_prot_]")
         expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
             model, 
             reverse_reaction_pattern="_REV", 
             isoenzyme_reaction_pattern="_EXP_\\d+",
-            patterns_to_ommit=["^usage_prot_"],
+            patterns_to_omit=["^usage_prot_"],
             verbose=False
         )
     
