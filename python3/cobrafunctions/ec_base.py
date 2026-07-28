@@ -93,7 +93,7 @@ def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_r
     return base_reaction_id
 
 
-def get_equation_from_base_reaction_id(ec_model,base_reaction_id,include_compartment=True,expanded_reaction_mapping_dict=None,metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "]):
+def get_equation_from_base_reaction_id(ec_model,base_reaction_id,expanded_reaction_mapping_dict=None,metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "],include_compartment=True):
     #Works like get_equation from cobrafunctions but tailored to ec_models
     #metabolite_patterns_to_omit will omit metabolites matching name or id any of the provided patterns
     #Build pattern to test for metabolites to omit
@@ -156,6 +156,59 @@ def get_equation_from_base_reaction_id(ec_model,base_reaction_id,include_compart
     reaction_str=substrate_str+arrow_str+product_str
     reaction_str=reaction_str.strip() #Remove whitespace from begining and end if any
     return(reaction_str) 
+
+
+def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_mapping_dict=None,reaction_str_metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "],reaction_str_include_compartment=True):
+    #Gets key reaction information from base id 
+    if expanded_reaction_mapping_dict is None:
+       expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
+                  model, 
+                  reverse_reaction_pattern="_REV", 
+                  isoenzyme_reaction_pattern="_EXP_\\d+",
+                  patterns_to_omit=["^usage_prot_"],
+                  verbose=False)
+    if len(expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"])>0:
+        rids=expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"]
+    elif  len(expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"])>0:
+        rids=expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"]
+    else:
+        raise Exception("No reactions found for"+base_reaction_id)
+    reaction_objects=[ec_model.reactions.get_by_id(x) for x in rids if x in ec_model.reactions]
+    if(len(reaction_objects)==0):
+        raise Exception("No reactions found in model for"+base_reaction_id)
+    gene_rules=""
+    subsystems=[]
+    names=[]
+    for n,reaction in enumerate(reaction_objects):
+           if reaction.subsystem not in ("",None):
+              subsystems.append(reaction.subsystem)
+           if reaction.name not in ("",None):
+              names.append(reaction.name) 
+           #Handle gene rules
+           if n==0:
+              local_gene_rule=reaction.gene_reaction_rule
+              if "and" in local_gene_rule:
+                 local_gene_rule="("+local_gene_rule+")"
+              if local_gene_rule!="":
+                 gene_rules=local_gene_rule
+           else:
+              local_gene_rule=reaction.gene_reaction_rule
+              if "and" in local_gene_rule:
+                 local_gene_rule="("+local_gene_rule+")"
+              if local_gene_rule!="":
+                 if gene_rules!="":
+                    gene_rules+=" or "+local_gene_rule
+                 else:
+                    gene_rules=local_gene_rule
+    
+    #Get unique names and subsystems and turn them to a string
+    name_str=";".join(set(names))
+    subsystem_str=";".join(set(subsystems))
+    
+    individual_reactions_str=";".join([x for x in expanded_reaction_mapping_dict[base_reaction_id]["forward_reactions"]+expanded_reaction_mapping_dict[base_reaction_id]["reverse_reactions"] if x in ec_model.reactions])
+    reaction_str=get_equation_from_base_reaction_id(ec_model=ec_model,base_reaction_id=base_reaction_id,expanded_reaction_mapping_dict=expanded_reaction_mapping_dict,metabolite_patterns_to_omit=reaction_str_metabolite_patterns_to_omit,include_compartment=reaction_str_include_compartment)
+    
+    return({"base_id":base_reaction_id,"name":name_str,"reaction":reaction_str,"subsystems":subsystem_str,"genes":gene_rules,"individual_reactions":individual_reactions_str})
 
 
 #Remove reactions without net flux
@@ -515,7 +568,7 @@ def add_net_flux_reporter_reactions(
 
 
 
-def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=None,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",minimal_output=False):
+def get_net_fluxes_from_ec_model(model,fluxes,output_flux_breakdown=False,ec_expanded_reaction_mapping_dict=None,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+",minimal_output=True):
     #Given a dictionary or pd.series of fluxes for a model with forward and reverse reactions, return a dictionary with net fluxes
     #If its dataframe it will assume it has samples(rows)x fluxes (columns)
     
