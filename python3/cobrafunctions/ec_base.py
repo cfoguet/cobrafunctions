@@ -79,8 +79,17 @@ def get_ec_expanded_reaction_mapping(model,reverse_reaction_pattern="_REV",isoen
     
     return mapping_dict, reverse_reactions
 
+def build_reaction_to_base_reaction_dict(expanded_reaction_mapping_dict):
+    lookup = {}
+    for key, value in expanded_reaction_mapping_dict.items():
+        for rxn in value["forward_reactions"]:
+            lookup[rxn] = key
+        for rxn in value["reverse_reactions"]:
+            lookup[rxn] = key
+    return lookup
 
 def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_reaction_pattern="_EXP_\d+"):
+    #TODO replace it by using it build_reaction_to_base_reaction_dict
     #Regex for reactions corresponding to isoenzymes e.g. EXP_1, EXP_2
     isoenzyme_reaction_regex = re.compile(isoenzyme_reaction_pattern)
     #Regex for reverse reactions
@@ -91,6 +100,38 @@ def get_base_reaction_id(reaction_id,reverse_reaction_pattern="_REV",isoenzyme_r
     if rev_regex.search(base_reaction_id):
             base_reaction_id=rev_regex.sub("",base_reaction_id)
     return base_reaction_id
+
+
+def remove_proteins_from_reaction(ec_model,reaction_id,usage_prot_reaction_prefix="usage_prot_", prot_metabolite_prefix="prot_",verbose=True,prune_unused_metabolites=False):
+   #Removes protein metabolites from reaction. Also clears the protein usage reaction if its the only reaction that uses it
+   #Useful when you need a reactions unconstraiend by prroteins (e.g respiratory chain)
+    if reaction_id in ec_model.reactions:
+       reaction_object=ec_model.reactions.get_by_id(reaction_id)
+       initial_reaction_str=get_equation(ec_model,reaction_object.id,True)#reaction_object.reaction
+       reaction_prot_objects=[x for x in reaction_object.metabolites if x.id.startswith(prot_metabolite_prefix)]
+       if len(reaction_prot_objects)==0:
+          print(reaction_id+": No Proteins found in Reaction")
+          return
+       #Get the dict to remove them 
+       reaction_object.add_metabolites({x:-1*reaction_object.metabolites[x] for x in reaction_prot_objects})
+       if verbose:
+          print(reaction_id+": Initial Reaction: "+initial_reaction_str)
+          print(reaction_id+": Final Reaction: "+get_equation(ec_model,reaction_object.id,True))
+       #Remove orphan proteins 
+       orphan_proteins=[]
+       for prot_metabolite in reaction_prot_objects:
+           if len(prot_metabolite.reactions)<2:
+              orphan_proteins.append(prot_metabolite)
+       if len(orphan_proteins)>0:
+          if verbose:
+             print("Removing orphan enzymes:"+"; ".join([x.id for x in orphan_proteins]))
+          ec_model.remove_metabolites(orphan_proteins,destructive=True) #Destructive true to clear the usage reaction
+       #Clear metabolites if they still remain
+       if prune_unused_metabolites:
+          cobra.manipulation.delete.prune_unused_metabolites(ec_model) 
+    else:
+      print(reaction_id+": Not in Model!")  
+
 
 
 def get_equation_from_base_reaction_id(ec_model,base_reaction_id,expanded_reaction_mapping_dict=None,metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "],include_compartment=True):
