@@ -258,7 +258,7 @@ def remove_blocked_reactions_ec_model(model,min_flux=1e-8,expanded_reaction_mapp
     print("Removing blocked reactions from EC model with min_flux="+str(min_flux))
     print("Model has "+str(len(model.reactions))+" reactions and "+str(len(model.metabolites))+" metabolites before removing blocked reactions")
     #Start by removing reactions that are already blocked
-    blocked_reactions=[x for x in model.reactions if x.bounds==(0,0)]
+    blocked_reactions=[x for x in model.reactions if x.bounds==(0,0) and x.id not in reactions_to_keep]
     print(str(len(blocked_reactions))+" reactions are already blocked")
     model.remove_reactions(blocked_reactions)
     cobra.manipulation.delete.prune_unused_metabolites(model) 
