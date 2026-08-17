@@ -780,7 +780,7 @@ def minimize_protein_usage_fba(ec_model,enzyme_kcat_scaling_factor_dict={},gene_
     return sol, model_min_enzyme_usage
 
 
-def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene_expression_df,gene_id_column="Gene name",gene_expression_column="tpm_normoxia_mean",only_nonzero_enzymes=True):
+def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene_expression_df,gene_id_column="index",gene_expression_column="tpm_normoxia_mean",only_nonzero_enzymes=True):
    out_data=[]
    reactions_to_evaluate=[x for x in model.reactions if "usage_prot_" in x.id]
    for reaction in reactions_to_evaluate:
@@ -824,10 +824,14 @@ def get_enzyme_usage_dataframe(model,fluxes,enzyme_kcat_scaling_factor_dict,gene
    if only_nonzero_enzymes:
       enzyme_usage_df=enzyme_usage_df[enzyme_usage_df["enzyme_usage"]>0]
    #enzyme_usage_df=enzyme_usage_df.sort_values('enzyme_usage_flux', ascending=False)
-   enzyme_usage_df = pd.merge(enzyme_usage_df,gene_expression_df[[gene_id_column,gene_expression_column]],
-      how="left",left_on="gene_id", # column in left df
-      right_on=gene_id_column # column in right df
-   )
+   if gene_id_column.lower()=="index":
+      enzyme_usage_df = pd.merge(enzyme_usage_df,gene_expression_df[[gene_expression_column]],
+         how="left",left_on="gene_id", # column in left df
+         right_index=True) # column in right df) 
+   else:
+      enzyme_usage_df = pd.merge(enzyme_usage_df,gene_expression_df[[gene_id_column,gene_expression_column]],
+         how="left",left_on="gene_id", # column in left df
+         right_on=gene_id_column) # column in right df)
    enzyme_usage_df["ratio_enzyme_usage_to_expression"]=enzyme_usage_df["enzyme_usage"]/(enzyme_usage_df[gene_expression_column]) 
    max_ratio=enzyme_usage_df["ratio_enzyme_usage_to_expression"].max()
    quantile_ratio_95=enzyme_usage_df["ratio_enzyme_usage_to_expression"].quantile(0.95)
