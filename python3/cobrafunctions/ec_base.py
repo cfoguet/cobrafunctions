@@ -917,62 +917,64 @@ def set_enzyme_usage_bounds_from_gene_expression(model,gene_expression_data,enzy
 
 
 def find_lowest_feasible_enzyme_expression_factor(
-	model,
-	gene_expression_data,
-	enzyme_kcat_scaling_factor_dict,
+    model,
+    gene_expression_data,
+    enzyme_kcat_scaling_factor_dict,
     no_expression_threshold=0,
-	min_factor=0,
-	initial_ratio_estimate=1,
-	tol=1e-6,
+    min_factor=0,
+    initial_ratio_estimate=1,
+    tol=1e-6,
     reactions_to_omit=[],
     proteins_to_omit=[],
     solver_tolerance_feasibility=1e-9,
-	verbose=True,
+    verbose=True,
 ):
-	"""
-	Iteratively find the lowest gene_expression_to_enzyme_factor that gives a feasible solution.
-	Returns the lowest feasible factor and the corresponding solution.
-	"""
-	low = min_factor
-	high = initial_ratio_estimate
-	best_factor = None
-	best_solution = None
+    """
+    Iteratively find the lowest gene_expression_to_enzyme_factor that gives a feasible solution.
+    Returns the lowest feasible factor and the corresponding solution.
+    """
+    low = min_factor
+    high = initial_ratio_estimate
+    best_factor = None
+    best_solution = None
 
-	while high - low > tol:
-		mid = (low + high) / 2
-		test_model = model.copy()
-		test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
-		set_enzyme_usage_bounds_from_gene_expression(
-			test_model,
-			gene_expression_data,
-			no_expression_threshold=no_expression_threshold,
-            enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
-			gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit, verbose=False #Otherwise it will print a lot of lines 
-		)
-		solution = test_model.optimize()
-		if verbose:
-			print(f"Testing factor: {mid:.6g}, status: {solution.status}")
-		if solution.status == "optimal":
-			best_factor = mid
-			best_solution = solution
-			high = mid
-		else:
-			low = mid
-
-	if best_factor is not None:
-		print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
-		#Run pfba to get the flux distribution
-		test_model = model.copy()
-		test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
-		set_enzyme_usage_bounds_from_gene_expression(
-			test_model,
-			gene_expression_data,
-			enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+    while high - low > tol:
+        mid = (low + high) / 2
+        test_model = model.copy()
+        test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
+        set_enzyme_usage_bounds_from_gene_expression(
+            test_model,
+            gene_expression_data,
             no_expression_threshold=no_expression_threshold,
-			gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit,
-            verbose=False #Otherwise it will print a lot of lines 
-		)
-		
-		best_solution = cobra.flux_analysis.pfba(test_model)
-	return best_factor, best_solution
+            enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+            gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit, verbose=False #Otherwise it will print a lot of lines 
+        )
+        solution = test_model.optimize()
+        if verbose:
+            print(f"Testing factor: {mid:.6g}, status: {solution.status}")
+        if solution.status == "optimal":
+            best_factor = mid
+            best_solution = solution
+            high = mid
+        else:
+            low = mid
+
+    if best_factor is not None:
+        print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
+        #Run pfba to get the flux distribution
+        test_model = model.copy()
+        test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
+        set_enzyme_usage_bounds_from_gene_expression(
+            test_model,
+            gene_expression_data,
+            enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
+            no_expression_threshold=no_expression_threshold,
+            gene_expression_to_enzyme_factor=best_factor,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit,
+            verbose=False )
+        try:
+           best_solution = cobra.flux_analysis.pfba(test_model)
+        except:
+            print("pfba failed. Returning previous best solution") 
+            best_solution.status="pfba failed"
+    return best_factor, best_solution
 
