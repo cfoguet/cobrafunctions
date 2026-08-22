@@ -6,6 +6,7 @@ import numpy as np
 import cobra
 import re
 import copy
+import warnings
 
 from typing import TYPE_CHECKING, Dict, List
 
@@ -949,7 +950,10 @@ def find_lowest_feasible_enzyme_expression_factor(
             enzyme_kcat_scaling_factor_dict=enzyme_kcat_scaling_factor_dict,
             gene_expression_to_enzyme_factor=mid,reactions_to_omit=reactions_to_omit,proteins_to_omit=proteins_to_omit, verbose=False #Otherwise it will print a lot of lines 
         )
-        solution = test_model.optimize()
+        #Supress infeasability warning since it is expected
+        with warnings.catch_warnings():
+             warnings.filterwarnings("ignore", message="Solver status is 'infeasible'")
+             solution = test_model.optimize()
         if verbose:
             print(f"Testing factor: {mid:.6g}, status: {solution.status}")
         if solution.status == "optimal":
@@ -960,7 +964,8 @@ def find_lowest_feasible_enzyme_expression_factor(
             low = mid
 
     if best_factor is not None:
-        print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
+        if verbose:
+           print(f"Lowest feasible gene_expression_to_enzyme_factor: {best_factor}")
         #Run pfba to get the flux distribution
         test_model = model.copy()
         test_model.solver.configuration.tolerances.feasibility = solver_tolerance_feasibility
