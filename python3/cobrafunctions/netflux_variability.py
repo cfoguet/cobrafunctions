@@ -97,8 +97,8 @@ def _fva_step_net_flux(flux_id: str) -> tuple:
     if not coef_dict:
         #logger.warning(f"Skipping flux {flux_id} as no flux is allowed in either direction")
         #return flux_id, float("nan")
-        logger.warning(f"Returning 0 for {flux_id} as no flux is allowed in either direction")
-        return flux_id, 0.0
+        logger.warning(f"Returning 0,optimal for {flux_id} as no flux is allowed in either direction")
+        return flux_id, (0.0,"optimal")
     
     # Set objective coefficients directly
     _model.solver.objective.set_linear_coefficients(coef_dict)
@@ -121,7 +121,7 @@ def _fva_step_net_flux(flux_id: str) -> tuple:
         {var: 0 for var in coef_dict.keys()}
     )
     
-    return flux_id, value
+    return flux_id, (value, _model.solver.status)
 
 
 def flux_variability_analysis_net_flux(
@@ -230,6 +230,9 @@ def flux_variability_analysis_net_flux(
         {
             "minimum": np.zeros(num_fluxes, dtype=float),
             "maximum": np.zeros(num_fluxes, dtype=float),
+            "minimum_status":np.full(num_fluxes, "", dtype=str),
+            "maximum_status": np.full(num_fluxes, "", dtype=str),
+
         },
         index=flux_list,
     )
@@ -303,7 +306,8 @@ def flux_variability_analysis_net_flux(
                     for flux_id, value in pool.imap_unordered(
                         _fva_step_net_flux, flux_list, chunksize=chunk_size
                     ):
-                        fva_result.at[flux_id, what] = value
+                        fva_result.at[flux_id, what] = value[0]
+                        fva_result.at[flux_id, what+"_status"] = value[1]
                         completed += 1
                         
                         # Print progress every progress_interval fluxes
@@ -325,7 +329,9 @@ def flux_variability_analysis_net_flux(
                 )
                 
                 for flux_id, value in map(_fva_step_net_flux, flux_list):
-                    fva_result.at[flux_id, what] = value
+                    fva_result.at[flux_id, what] = value[0]
+                    fva_result.at[flux_id, what+"_status"] = value[1]
+                    
                     completed += 1
                     
                     # Print progress every progress_interval fluxes
@@ -351,4 +357,4 @@ def flux_variability_analysis_net_flux(
     if old_optimality_tolerance is not None:
         model.solver.configuration.tolerances.optimality = old_optimality_tolerance
     
-    return fva_result[["minimum", "maximum"]]
+    return fva_result[["minimum", "maximum","minimum_status","maximum_status"]]
