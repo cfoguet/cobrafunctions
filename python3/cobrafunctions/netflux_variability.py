@@ -95,8 +95,10 @@ def _fva_step_net_flux(flux_id: str) -> tuple:
             )
     
     if not coef_dict:
-        logger.warning(f"Skipping flux {flux_id} as no flux is allowed in either direction")
-        return flux_id, float("nan")
+        #logger.warning(f"Skipping flux {flux_id} as no flux is allowed in either direction")
+        #return flux_id, float("nan")
+        logger.warning(f"Returning 0 for {flux_id} as no flux is allowed in either direction")
+        return flux_id, 0.0
     
     # Set objective coefficients directly
     _model.solver.objective.set_linear_coefficients(coef_dict)
