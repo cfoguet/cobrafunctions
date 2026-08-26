@@ -294,7 +294,7 @@ def remove_isoforms_information(model,separator="\."):
 
 
 def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False,return_dataframe=False,method="optgp",thinning=100):
-    print(method, thinning)
+    print(method,n, thinning)
     reaction_ids=[x.id for x in model.reactions]
     if objective!=None:
         print(model.reactions.get_by_id(objective).lower_bound)
@@ -318,7 +318,8 @@ def sampling(model,n=100,processes=6,objective=None,starts=1,return_matrix=False
     if return_dataframe:
         aggregated_results=pd.DataFrame(aggregated_results)
         aggregated_results.columns=reaction_ids
-        aggregated_results['sample_n'] = ["sample_"+str(x) for x in range(n)]
+        n_actual = aggregated_results.shape[0] #Sometimes it can return more samples when n is not divisible by processes
+        aggregated_results['sample_n'] = ["sample_"+str(x) for x in range(n_actual)]
         aggregated_results.set_index("sample_n",inplace=True)
         return  aggregated_results       
     elif return_matrix:
