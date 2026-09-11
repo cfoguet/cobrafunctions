@@ -200,7 +200,7 @@ def get_equation_from_base_reaction_id(ec_model,base_reaction_id,expanded_reacti
     return(reaction_str) 
 
 
-def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_mapping_dict=None,reaction_str_metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "],reaction_str_include_compartment=True):
+def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_mapping_dict=None,reaction_str_metabolite_patterns_to_omit=["^prot_","Reporter metabolite for "],reaction_str_include_compartment=True,keep_only_unique_gene_rules=True):
     #Gets key reaction information from base id 
     if expanded_reaction_mapping_dict is None:
        expanded_reaction_mapping_dict, _ = get_ec_expanded_reaction_mapping(
@@ -218,7 +218,8 @@ def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_map
     reaction_objects=[ec_model.reactions.get_by_id(x) for x in rids if x in ec_model.reactions]
     if(len(reaction_objects)==0):
         raise Exception("No reactions found in model for"+base_reaction_id)
-    gene_rules=""
+    #gene_rules=""
+    gene_rules=[]
     subsystems=[]
     names=[]
     for n,reaction in enumerate(reaction_objects):
@@ -227,7 +228,7 @@ def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_map
            if reaction.name not in ("",None):
               names.append(reaction.name) 
            #Handle gene rules
-           if n==0:
+           """if n==0:
               local_gene_rule=reaction.gene_reaction_rule
               if "and" in local_gene_rule:
                  local_gene_rule="("+local_gene_rule+")"
@@ -242,6 +243,15 @@ def get_base_reaction_annotation(ec_model,base_reaction_id,expanded_reaction_map
                     gene_rules+=" or "+local_gene_rule
                  else:
                     gene_rules=local_gene_rule
+           """
+           local_gene_rule=reaction.gene_reaction_rule
+           if "and" in local_gene_rule:
+                 local_gene_rule="("+local_gene_rule+")"
+           gene_rules.append(local_gene_rule) 
+    #Get unique gene rules
+    if keep_only_unique_gene_rules:
+       gene_rules=set(gene_rules)
+    gene_rules=" or ".join(gene_rules)
     
     #Get unique names and subsystems and turn them to a string
     name_str=";".join(set(names))
